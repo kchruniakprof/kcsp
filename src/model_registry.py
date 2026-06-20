@@ -13,5 +13,5 @@ REGISTRY: dict[str, str] = {
     "llm_selector": "llama-3.3-70b-versatile",
     "critic": "qwen/qwen3-32b",
     # OpenRouter — batch
-    "enrichment": "meta-llama/llama-3.3-70b-instruct",
+    "enrichment": "openai/gpt-4o-mini-2024-07-18",
 }

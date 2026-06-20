@@ -60,10 +60,11 @@ def enrich_sections(
     client: Optional[Any] = None,
     model: str = DEFAULT_MODEL,
     auto_yes: bool = False,
+    output_filename: str = "sections_enriched.parquet",
 ) -> pd.DataFrame:
     """Enrich all is_retrieval_unit=True rows with Core-4 fields.
 
-    Returns the updated DataFrame (also written to output_dir/sections_enriched.parquet).
+    Returns the updated DataFrame (also written to output_dir/output_filename).
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,13 @@ def enrich_sections(
     _log.info("start", total=total, already_done=len(checkpoint))
 
     result_df = sections_df.copy()
+    # Ensure Core-4 columns exist with object dtype before assigning list values
+    for col in ("title", "description", "questions", "topic_tags"):
+        if col not in result_df.columns:
+            result_df[col] = None
+    # Force object dtype so list assignments don't trigger broadcast errors
+    for col in ("questions", "topic_tags"):
+        result_df[col] = result_df[col].astype(object)
 
     for _, row in retrieval_df.iterrows():
         sid = str(row["section_id"])
@@ -107,8 +115,8 @@ def enrich_sections(
             _log.error("error", section_id=sid, error=str(exc))
             _append_error(output_dir, int(sid), str(exc))
 
-    result_df.to_parquet(output_dir / "sections_enriched.parquet", index=False)
-    _log.info("done", output=str(output_dir / "sections_enriched.parquet"))
+    result_df.to_parquet(output_dir / output_filename, index=False)
+    _log.info("done", output=str(output_dir / output_filename))
     return result_df
 
 
@@ -126,7 +134,7 @@ if __name__ == "__main__":
     subs = pd.read_parquet(parquet_dir / "subsections.parquet")
 
     print("[enrich_sections] Enriching sections.parquet ...")
-    enrich_sections(secs, parquet_dir, auto_yes=args.yes)
+    enrich_sections(secs, parquet_dir, auto_yes=args.yes, output_filename="sections.parquet")
 
     print("[enrich_sections] Enriching subsections.parquet ...")
-    enrich_sections(subs, parquet_dir, auto_yes=args.yes)
+    enrich_sections(subs, parquet_dir, auto_yes=args.yes, output_filename="subsections.parquet")
