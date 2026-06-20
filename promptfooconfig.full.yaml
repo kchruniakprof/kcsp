@@ -1,0 +1,19 @@
+description: "ERGO P&C Agent-Bot — full eval (99 questions)"
+
+providers:
+  - id: python:src/promptfoo_provider.py
+    label: ergo-rag
+
+prompts:
+  - "{{question}}"
+
+defaultTest:
+  assert:
+    - type: not-contains
+      value: "Traceback"
+    - type: javascript
+      value: |
+        const out = output ?? "";
+        return out.length > 0;
+
+tests: eval_set.yaml

@@ -1,0 +1,33 @@
+# Secrets
+.env
+
+# Generated data / artifacts
+parquet/
+sources/
+*.log
+results.json
+eval_stderr.log
+logs_failing.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Test caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+
+# Claude local settings
+.claude/settings.local.json

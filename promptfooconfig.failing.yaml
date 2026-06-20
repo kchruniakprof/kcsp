@@ -1,0 +1,19 @@
+description: "ERGO P&C — failing questions only (26)"
+
+providers:
+  - id: python:src/promptfoo_provider.py
+    label: ergo-rag
+
+prompts:
+  - "{{question}}"
+
+defaultTest:
+  assert:
+    - type: not-contains
+      value: "Traceback"
+    - type: javascript
+      value: |
+        const out = output ?? "";
+        return out.length > 0;
+
+tests: eval_failing.yaml

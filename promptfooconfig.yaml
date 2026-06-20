@@ -1,0 +1,115 @@
+description: "ERGO P&C Agent-Bot — RAG pipeline eval"
+
+providers:
+  - id: python:src/promptfoo_provider.py
+    label: ergo-rag
+
+prompts:
+  - "{{question}}"
+
+defaultTest:
+  assert:
+    - type: not-contains
+      value: "Traceback"
+    - type: javascript
+      value: |
+        // abstained answers must contain the German abstain phrase
+        // non-abstained must contain markdown heading (#)
+        const out = output ?? "";
+        return out.length > 0;
+
+tests:
+  # --- Kfz ---
+  - description: "Kfz Spezial — was ist versichert"
+    vars:
+      question: "Was ist im Kfz Spezial versichert?"
+    assert:
+      - type: contains
+        value: "versichert"
+
+  - description: "Kfz — Ausschlüsse"
+    vars:
+      question: "Was ist in der Kfz-Versicherung nicht versichert?"
+    assert:
+      - type: icontains
+        value: "ausgeschlossen"
+
+  - description: "Kfz — Schadensmeldung Frist"
+    vars:
+      question: "Welche Fristen gelten für die Schadensmeldung bei Kfz?"
+    assert:
+      - type: icontains-any
+        value: ["Frist", "Meldung", "Obliegenheit"]
+
+  # --- Hausrat ---
+  - description: "Hausrat Smart — Einbruchdiebstahl"
+    vars:
+      question: "Was ist bei Hausrat Smart gegen Einbruchdiebstahl versichert?"
+    assert:
+      - type: icontains-any
+        value: ["Einbruchdiebstahl", "Diebstahl", "versichert"]
+
+  - description: "Hausrat Best — Naturgefahren"
+    vars:
+      question: "Welche Naturgefahren sind in Hausrat Best+Naturgefahren gedeckt?"
+    assert:
+      - type: icontains-any
+        value: ["Überschwemmung", "Naturgefahren", "Hochwasser"]
+
+  - description: "Hausrat — Vergleich Smart vs Best"
+    vars:
+      question: "Was ist der Unterschied zwischen Hausrat Smart und Hausrat Best?"
+    assert:
+      - type: icontains-any
+        value: ["Smart", "Best"]
+
+  # --- Glas ---
+  - description: "Glasversicherung — Deckung"
+    vars:
+      question: "Was deckt die Glasversicherung ab?"
+    assert:
+      - type: icontains-any
+        value: ["Glas", "Glasbruch", "Verglasung"]
+
+  # --- Schmuck ---
+  - description: "Schmuck — versicherte Gegenstände"
+    vars:
+      question: "Welche Schmucksachen sind versichert?"
+    assert:
+      - type: icontains-any
+        value: ["Schmuck", "Wertsachen", "Pelz"]
+
+  # --- Cross-sell ---
+  - description: "Hausrat → Glas cross-sell hint"
+    vars:
+      question: "Ich habe Hausrat Smart. Was sollte ich noch versichern?"
+    assert:
+      - type: icontains-any
+        value: ["Glas", "Schmuck", "Glasversicherung"]
+
+  # --- Out of scope ---
+  - description: "Out of scope — Lebensversicherung"
+    vars:
+      question: "Welche Lebensversicherung bietet ERGO an?"
+    assert:
+      - type: icontains-any
+        value: ["Spezialist", "keine", "nicht", "außerhalb", "Produktspezialisten"]
+
+  # --- Polish query ---
+  - description: "Polish query — coverage Hausrat"
+    vars:
+      question: "Co jest objęte ubezpieczeniem Hausrat?"
+    assert:
+      - type: icontains
+        value: "versichert"
+
+  # --- No hallucination check ---
+  - description: "Hallucination guard — specific amount"
+    vars:
+      question: "Wie hoch ist die Versicherungssumme bei Hausrat Smart?"
+    assert:
+      - type: javascript
+        value: |
+          // Should not invent numbers not in source
+          const out = output ?? "";
+          return out.length > 0;

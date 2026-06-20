@@ -1,0 +1,565 @@
+- description: comparison_02_Hausrat_Smart_vs_Hausrat_Best
+  vars:
+    question: Was sind die wesentlichen Unterschiede zwischen dem Hausrat Smart und
+      dem Hausrat Best Tarif von ERGO?
+    expected_intent: COMPARISON
+    expected_sparte: Hausrat
+    notes: Vergleich der Leistungen und Bedingungen der beiden Tarife
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Leistungsumfang
+    - PrĂ¤mie
+    - Selbstbehalt
+  - type: not-icontains
+    value: Traceback
+- description: comparison_05_Glasversicherung_vs_Hausrat
+  vars:
+    question: Welche Unterschiede bestehen zwischen der Glasversicherung und der Hausratversicherung
+      von ERGO in Bezug auf Deckungsumfang und BeitragshĂ¶he?
+    expected_intent: COMPARISON
+    expected_sparte: Glas
+    notes: Die Frage zielt darauf ab, die Unterschiede zwischen zwei verschiedenen
+      Versicherungssparten von ERGO zu verstehen.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Glasversicherung
+    - Hausratversicherung
+    - Deckungsumfang
+  - type: not-icontains
+    value: Traceback
+- description: comparison_07_Kfz_Spezial_vs_Kfz_Standard_â€”_
+  vars:
+    question: Welche Unterschiede bestehen zwischen Kfz Spezial und Kfz Standard hinsichtlich
+      der Kaskodeckung?
+    expected_intent: COMPARISON
+    expected_sparte: Kfz
+    notes: Die Frage soll die Unterschiede in der Kaskodeckung zwischen den beiden
+      Tarifen Kfz Spezial und Kfz Standard bei ERGO P&C beleuchten.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Kasko
+    - Deckungssumme
+    - Selbstbeteiligung
+  - type: not-icontains
+    value: Traceback
+- description: comparison_08_Schmuck_vs_Hausrat_â€”_Wertsache
+  vars:
+    question: Welche Unterschiede bestehen zwischen der Schmuck- und der Hausratversicherung
+      hinsichtlich des Versicherungsumfangs fĂĽr Wertsachen?
+    expected_intent: COMPARISON
+    expected_sparte: Hausrat
+    notes: Vergleicht die Abdeckung von Schmuck und Hausrat bei der ERGO Versicherung
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Schmuck
+    - Hausrat
+    - Wertsachen
+  - type: not-icontains
+    value: Traceback
+- description: comparison_10_Glasversicherung_vs_Schmuckver
+  vars:
+    question: Welche Versicherung bietet besseren Schutz fĂĽr wertvolle GegenstĂ¤nde
+      im Haushalt, die Glasversicherung oder die Schmuckversicherung?
+    expected_intent: COMPARISON
+    expected_sparte: Glas
+    notes: Die Frage soll die Unterschiede zwischen Glas- und Schmuckversicherung
+      hervorheben.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Glasbruch
+    - Schmuckverlust
+    - HaushaltsgegenstĂ¤nde
+  - type: not-icontains
+    value: Traceback
+- description: coverage_query_03_Kfz_Standard
+  vars:
+    question: Ich habe einen Kunden, der seinen FĂĽhrerschein verloren hat. Ist er
+      trotzdem noch versichert, wenn er ein Fahrzeug fĂ¤hrt?
+    expected_intent: COVERAGE_QUERY
+    expected_sparte: Kfz
+    expected_tarif: Standard
+    source_section_id: 34
+    source_breadcrumb: Kfz > Standard > Â§F Fahrerlaubnis (H.4) 21 Fahrerschutz (A.3,
+      C.1) 6,8 FahrzeugschlĂĽssel (E.2) 11 Fahrzeugverwendung (H.3) 21 fehlende Fahrerlaubnis
+      (G.4) 18 Folgebeitrag (J) 23
+    language: de
+    notes: Frage zum Fahrerschutz bei Verlust der Fahrerlaubnis
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Fahrerlaubnis
+    - FĂĽhrerschein
+  - type: not-icontains
+    value: Traceback
+- description: coverage_query_09_Hausrat_Smart
+  vars:
+    question: What costs are covered in case of a burglary and are there any specific
+      limits for these costs within the Smart tariff for Hausrat insurance?
+    expected_intent: COVERAGE_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Smart
+    source_section_id: 50
+    source_breadcrumb: Hausrat > Smart > Â§9 Welche Kosten sind in welcher HĂ¶he versichert?
+    language: en
+    notes: Query about specific coverage and limits in case of burglary for Hausrat
+      insurance under the Smart tariff
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - burglary
+    - costs
+    - limits
+  - type: not-icontains
+    value: Traceback
+- description: coverage_query_28_Hausrat_Best+Naturgefahren
+  vars:
+    question: Sind SchĂ¤den durch einen Fahrzeuganprall an meinem Haus versichert,
+      wenn ich den Tarif 'Best+Naturgefahren' habe?
+    expected_intent: COVERAGE_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best+Naturgefahren
+    source_section_id: 107
+    source_breadcrumb: Hausrat > Best+Naturgefahren > Â§4 Welche SchĂ¤den durch welche
+      Gefahren sind versichert und welche nicht?
+    language: de
+    notes: Frage bezieht sich auf die Abdeckung von SchĂ¤den durch Fahrzeuganprall
+      im Hausrat-Tarif 'Best+Naturgefahren'
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Fahrzeuganprall
+    - Hausrat
+    - Best+Naturgefahren
+  - type: not-icontains
+    value: Traceback
+- description: coverage_query_29_Hausrat_Smart
+  vars:
+    question: Sind meine privat genutzten Elektrofahrzeug-Ladestationen (Wallboxen)
+      auf dem VersicherungsgrundstĂĽck mit dem Hausrat-Tarif Smart versichert?
+    expected_intent: COVERAGE_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Smart
+    source_section_id: 42
+    source_breadcrumb: Hausrat > Smart > Â§1 Welche Sachen sind versichert und welche
+      nicht?
+    language: de
+    notes: Frage bezieht sich auf spezifische Versicherungsleistung im Tarif Smart
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - LadegerĂ¤te
+    - Elektrofahrzeuge
+    - Wallboxen
+  - type: not-icontains
+    value: Traceback
+- description: coverage_query_30_Hausrat_Best
+  vars:
+    question: Ist mein Hausrat in einer Garage versichert, die 1.200 Meter von meiner
+      Wohnung entfernt ist, und wenn ja, unter welchen Bedingungen?
+    expected_intent: COVERAGE_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best
+    source_section_id: 75
+    source_breadcrumb: Hausrat > Best > Â§3 Wo ist Ihr Hausrat versichert und wo ist
+      er nicht versichert?
+    language: de
+    notes: Frage bezieht sich auf den Versicherungsort und die Entfernung von der
+      Wohnung
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Garagen
+    - Entfernung
+    - Versicherungsort
+  - type: not-icontains
+    value: Traceback
+- description: coverage_query_33_Hausrat_Best+Naturgefahren
+  vars:
+    question: What is the coverage limit for cash and money on cards or other data
+      carriers in the Best+Naturgefahren tariff for Hausrat insurance?
+    expected_intent: COVERAGE_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best+Naturgefahren
+    source_section_id: 105
+    source_breadcrumb: Hausrat > Best+Naturgefahren > Â§2 Was sind Wertsachen? Welche
+      EntschĂ¤digungsgrenzen gelten fĂĽr Wertsachen? Was sind WertschutzschrĂ¤nke?
+    language: en
+    notes: The agent wants to know the specific coverage limit for cash and money
+      on cards in the given tariff
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - cash
+    - coverage limit
+    - Wertsachen
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_06_Hausrat_Best+Naturgefahren
+  vars:
+    question: Wenn ich als Versicherungsnehmer den Schaden durch grobe FahrlĂ¤ssigkeit
+      herbeigefĂĽhrt habe, mĂĽssen Sie als Versicherer dann immer die Leistung kĂĽrzen?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best+Naturgefahren
+    source_section_id: 116
+    source_breadcrumb: Hausrat > Best+Naturgefahren > Â§13 Wann erhalte ich keine
+      EntschĂ¤digung?
+    language: de
+    notes: Frage bezieht sich auf den Ausschluss von Leistungen bei grober FahrlĂ¤ssigkeit
+      im Hausratversicherungsvertrag.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - grobe FahrlĂ¤ssigkeit
+    - LeistungskĂĽrzung
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_08_Hausrat_Best+Fahrraddiebstahl
+  vars:
+    question: Wenn ich als Versicherungsnehmer einen Schaden grob fahrlĂ¤ssig herbeifĂĽhre,
+      was passiert mit meiner EntschĂ¤digung bei dem Tarif Best+Fahrraddiebstahl?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best+Fahrraddiebstahl
+    source_section_id: 147
+    source_breadcrumb: Hausrat > Best+Fahrraddiebstahl > Â§13 Wann erhalte ich keine
+      EntschĂ¤digung?
+    language: de
+    notes: Die Frage bezieht sich auf die Auswirkungen grober FahrlĂ¤ssigkeit auf
+      die EntschĂ¤digung
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - grob fahrlĂ¤ssig
+    - EntschĂ¤digung
+    - KĂĽrzung
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_09_Glas_KT2021GLHR
+  vars:
+    question: What types of events are excluded from glass insurance coverage under
+      the KT2021GLHR tariff?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Glas
+    expected_tarif: KT2021GLHR
+    source_section_id: 168
+    source_breadcrumb: Glas > KT2021GLHR > Â§3 Wogegen sind die Verglasungen grundsĂ¤tzlich
+      nicht versichert?
+    language: en
+    notes: Checking exclusions for glass insurance
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Kriegsereignisse
+    - Kernenergie
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_10_Glas_KT2021GLHR
+  vars:
+    question: Wenn ich als Versicherungsnehmer den Schaden grob fahrlĂ¤ssig herbeigefĂĽhrt
+      habe, was passiert dann mit meiner EntschĂ¤digung bei der Glasversicherung KT2021GLHR?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Glas
+    expected_tarif: KT2021GLHR
+    source_section_id: 171
+    source_breadcrumb: Glas > KT2021GLHR > Â§6 Wann erhalte ich keine EntschĂ¤digung
+      und Kostenerstattung?
+    language: de
+    notes: Frage zum Ausschlussgrund bei grober FahrlĂ¤ssigkeit
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - grob fahrlĂ¤ssig
+    - EntschĂ¤digung
+    - KĂĽrzung
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_12_Hausrat_Smart
+  vars:
+    question: If a policyholder intentionally causes damage, will they still receive
+      compensation under the Smart tariff for Hausrat insurance?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Smart
+    source_section_id: 54
+    source_breadcrumb: Hausrat > Smart > Â§13 Wann erhalte ich keine EntschĂ¤digung?
+    language: en
+    notes: Policyholder is asking about exclusion due to intentional damage
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - vorsĂ¤tzlich
+    - Leistungsfreiheit
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_15_Schmuck_KT Schmuck
+  vars:
+    question: If a customer intentionally damages their insured jewelry, will they
+      still receive compensation under the KT Schmuck tariff?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Schmuck
+    expected_tarif: KT Schmuck
+    source_section_id: 190
+    source_breadcrumb: Schmuck > KT Schmuck > Â§8 Wann erhalte ich keine EntschĂ¤digung?
+    language: en
+    notes: Checking exclusion criteria for intentional damage
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - vorsĂ¤tzlich
+    - Leistungsfreiheit
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_17_Hausrat_Best
+  vars:
+    question: Czy garaĹĽ, ktĂłry jest oddalony o ponad 1 kilometr od mieszkania, jest
+      objÄ™ty ubezpieczeniem Hausrat w ramach polisy Best?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best
+    source_section_id: 75
+    source_breadcrumb: Hausrat > Best > Â§3 Wo ist Ihr Hausrat versichert und wo ist
+      er nicht versichert?
+    language: pl
+    notes: Pytanie dotyczy wyĹ‚Ä…czeĹ„ z ubezpieczenia Hausrat w ramach polisy Best,
+      a konkretnie odlegĹ‚oĹ›ci garaĹĽu od mieszkania.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - garaĹĽ
+    - odlegĹ‚oĹ›Ä‡
+    - ubezpieczenie
+  - type: not-icontains
+    value: Traceback
+- description: exclusion_query_19_Hausrat_Best+Naturgefahren
+  vars:
+    question: Gegen welche SchĂ¤den ist mein Hausrat in dem Tarif Best+Naturgefahren
+      nicht versichert?
+    expected_intent: EXCLUSION_QUERY
+    expected_sparte: Hausrat
+    expected_tarif: Best+Naturgefahren
+    source_section_id: 108
+    source_breadcrumb: Hausrat > Best+Naturgefahren > Â§5 Wogegen ist mein Hausrat
+      grundsĂ¤tzlich nicht versichert?
+    language: de
+    notes: Frage zielt auf AusschlĂĽsse im Hausrat-Tarif ab
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Kriegsereignisse
+    - Kernenergie
+  - type: not-icontains
+    value: Traceback
+- description: claims_procedure_01_Kfz_Standard
+  vars:
+    question: Wenn ich einen Kaskoschaden bei meinem Kfz melde, wie lange dauert es
+      in der Regel, bis der Schaden reguliert ist und ich die EntschĂ¤digung erhalte?
+    expected_intent: CLAIMS_PROCEDURE
+    expected_sparte: Kfz
+    expected_tarif: Standard
+    source_section_id: 37
+    source_breadcrumb: Kfz > Standard > Â§K Kasko (E) 10 Kaskoschaden (E.5) 13 Kaufpreis
+      (E.5) 14 Kernenergie (C.2, D.2, E.4, F.4, G.4) 9, 10, 13, 17, 18 Kfz-Haftpflicht
+      (C) 7 Kfz-Schutzbrief (G) 17 KleinschĂ¤den (H.5) 22 Kriegsereignisse, innere
+      Unruhen (E.4, F.4, G.4) 13, 17, 18 KĂĽndigung auĂźerordentliche (K.7) 26 Besonderheiten
+      allgemein (M.4) 31 ErwerberkĂĽndigung (M.3) 31 fristlose (H.3) 21 nach Schaden
+      (I) 23 vorlĂ¤ufiger Versicherungsschutz (B.3) 8 wegen BedingungsĂ¤nderung (M.2)
+      30 wegen BeitragserhĂ¶hung (K.4) 25 wegen Obliegenheitsverletzung (H.4) 21 zum
+      Ablauf (B.4) 7 Kurzschluss (E.2) 11 Kurzzeitkennzeichen (O.2) 33
+    language: de
+    notes: Frage zielt auf die Bearbeitungszeit nach Schadenmeldung ab
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Kaskoschaden
+    - Regulierung
+    - EntschĂ¤digung
+  - type: not-icontains
+    value: Traceback
+- description: claims_procedure_13_Hausrat_Best+Fahrraddiebstahl
+  vars:
+    question: Co siÄ™ stanie, jeĹ›li klient nie dopeĹ‚ni obowiÄ…zkĂłw informacyjnych
+      po wystÄ…pieniu szkody w ramach polisy ubezpieczeniowej Hausrat Best+Fahrraddiebstahl?
+    expected_intent: CLAIMS_PROCEDURE
+    expected_sparte: Hausrat
+    expected_tarif: Best+Fahrraddiebstahl
+    source_section_id: 158
+    source_breadcrumb: Hausrat > Best+Fahrraddiebstahl > Â§24 Welche Folgen hat die
+      Verletzung von Obliegenheiten (Mitwirkungspflichten)?
+    language: pl
+    notes: Pytanie dotyczy konsekwencji niewykonania obowiÄ…zkĂłw informacyjnych przez
+      klienta w przypadku szkody w ramach polisy ubezpieczeniowej Hausrat Best+Fahrraddiebstahl
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Obliegenheiten
+    - Verletzung
+    - Hausrat
+    - Best+Fahrraddiebstahl
+  - type: not-icontains
+    value: Traceback
+- description: claims_procedure_14_Kfz_Spezial
+  vars:
+    question: Was passiert, wenn ein Kunde bei der Antragstellung fĂĽr eine Kfz-Versicherung
+      im Spezial-Tarif bestimmte GefahrumstĂ¤nde nicht richtig oder nicht vollstĂ¤ndig
+      angibt und dies nachtrĂ¤glich bekannt wird?
+    expected_intent: CLAIMS_PROCEDURE
+    expected_sparte: Kfz
+    expected_tarif: Spezial
+    source_section_id: 8
+    source_breadcrumb: Kfz > Spezial > Â§G Obliegenheiten
+    language: de
+    notes: Die Frage bezieht sich auf die Konsequenzen einer Verletzung der Anzeigepflicht
+      bei der Antragstellung fĂĽr eine Kfz-Versicherung im Spezial-Tarif.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Obliegenheitsverletzung
+    - KĂĽndigung
+    - RĂĽcktritt
+  - type: not-icontains
+    value: Traceback
+- description: price_quote_02_Kfz_Standard
+  vars:
+    question: Wie hoch ist der Beitrag fĂĽr einen Kfz-Versicherungsvertrag mit Standard-Tarif,
+      wenn der Fahrer eine fehlende Fahrerlaubnis hat?
+    expected_intent: PRICE_QUOTE
+    expected_sparte: Kfz
+    expected_tarif: Standard
+    source_section_id: 34
+    source_breadcrumb: Kfz > Standard > Â§F Fahrerlaubnis (H.4) 21 Fahrerschutz (A.3,
+      C.1) 6,8 FahrzeugschlĂĽssel (E.2) 11 Fahrzeugverwendung (H.3) 21 fehlende Fahrerlaubnis
+      (G.4) 18 Folgebeitrag (J) 23
+    language: de
+    notes: Beitragsfrage bei fehlender Fahrerlaubnis
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Fehlende Fahrerlaubnis
+    - Beitrag
+    - Kfz-Versicherung
+  - type: not-icontains
+    value: Traceback
+- description: price_quote_05_Hausrat_Best
+  vars:
+    question: If I pay my first premium 30 days after receiving the insurance policy,
+      will I have insurance coverage during that time for my household contents with
+      the Best tariff?
+    expected_intent: PRICE_QUOTE
+    expected_sparte: Hausrat
+    expected_tarif: Best
+    source_section_id: 89
+    source_breadcrumb: Hausrat > Best > Â§17 Was muss ich bei meiner Beitragszahlung
+      beachten?
+    language: en
+    notes: The agent is asking about the insurance coverage during the payment delay
+      period.
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Versicherungsschutz
+    - Beitragszahlung
+    - Best tariff
+  - type: not-icontains
+    value: Traceback
+- description: general_info_02_Kfz_Spezial
+  vars:
+    question: Was passiert, wenn ein Kunde den ersten Beitrag fĂĽr den Kfz-Spezial-Tarif
+      nicht rechtzeitig zahlt?
+    expected_intent: GENERAL_INFO
+    expected_sparte: Kfz
+    expected_tarif: Spezial
+    source_section_id: 3
+    source_breadcrumb: Kfz > Spezial > Â§B Zustandekommen des Versicherungsschutzes
+      und vorlĂ¤ufiger Versicherungsschutz
+    language: de
+    notes: Frage bezieht sich auf den Abschnitt 'Zustandekommen des Versicherungsschutzes
+      und vorlĂ¤ufiger Versicherungsschutz'
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Beitrag
+    - rechtzeitig
+    - Zahlung
+  - type: not-icontains
+    value: Traceback
+- description: general_info_03_Kfz_Standard
+  vars:
+    question: Was passiert mit meinem Kfz-Vertrag, wenn ich mein Fahrzeug gegen ein
+      anderes austausche und wie wird ich ĂĽber eventuelle Ă„nderungen informiert?
+    expected_intent: GENERAL_INFO
+    expected_sparte: Kfz
+    expected_tarif: Standard
+    source_section_id: 39
+    source_breadcrumb: Kfz > Standard > Â§M Mahnung bei Fahrzeugwechsel (J.2) 24 Mahnung
+      und KĂĽndigung (J.2) 23 Mehrwertsteuer (E.5) 14 Meinungsverschiedenheiten (E.8)
+      16 Mietfahrzeug (E.5) 15 Miet-Kfz im Ausland â€žMallorca Police" (C.1) 8 Mindestbeitrag
+      (B.3, N.2, O.1) 7, 32 mitversicherte Personen (C.2, C.3, D.3) 9, 10 Motorsport-Rennstrecken
+      (E.4, G.4) 13, 18 Motorsportveranstaltungen oder -aktivitĂ¤ten (C.2, E.4, G.4,
+      H.4) 9,13, 18, 21 mut- oder bĂ¶swillige Handlungen (E.3) 12
+    language: de
+    notes: Frage zu Mahnung bei Fahrzeugwechsel im Kfz-Vertrag
+  assert:
+  - type: javascript
+    value: output.length > 0
+  - type: icontains-any
+    value:
+    - Fahrzeugwechsel
+    - Mahnung
+  - type: not-icontains
+    value: Traceback
