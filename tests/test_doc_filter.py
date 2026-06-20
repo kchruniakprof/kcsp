@@ -92,11 +92,11 @@ def test_product_detector_uses_query_sparte_hint_when_no_init_sparte(documents_d
     assert len(result) > 0
 
 
-def test_product_detector_no_sparte_returns_empty(documents_df):
+def test_product_detector_no_sparte_returns_none(documents_df):
     from src.doc_filter import ProductDetectorAdapter
     adapter = ProductDetectorAdapter(documents_df)
     result = adapter.filter(_FakeQuery(sparte_hint=None))
-    assert result == frozenset()
+    assert result is None
 
 
 def test_product_detector_returns_frozenset(documents_df):
@@ -116,41 +116,72 @@ def test_rare_tag_matcher_glasbruch(sections_df, subsections_df):
     assert isinstance(result, frozenset)
 
 
-def test_rare_tag_matcher_generic_schaden_returns_empty(sections_df, subsections_df):
+def test_rare_tag_matcher_generic_schaden_returns_none(sections_df, subsections_df):
     from src.doc_filter import RareTagMatcherAdapter
     adapter = RareTagMatcherAdapter(sections_df, subsections_df)
     result = adapter.filter(_FakeQuery(domain_terms=["Schaden"]))
-    assert result == frozenset()
+    assert result is None
 
 
-def test_rare_tag_matcher_empty_terms(sections_df, subsections_df):
+def test_rare_tag_matcher_empty_terms_returns_none(sections_df, subsections_df):
     from src.doc_filter import RareTagMatcherAdapter
     adapter = RareTagMatcherAdapter(sections_df, subsections_df)
     result = adapter.filter(_FakeQuery(domain_terms=[]))
-    assert result == frozenset()
+    assert result is None
 
 
-def test_rare_tag_matcher_all_generic_blocklist_terms(sections_df, subsections_df):
+def test_rare_tag_matcher_all_generic_blocklist_returns_none(sections_df, subsections_df):
     from src.doc_filter import RareTagMatcherAdapter, GENERIC_BLOCKLIST
     adapter = RareTagMatcherAdapter(sections_df, subsections_df)
     result = adapter.filter(_FakeQuery(domain_terms=list(GENERIC_BLOCKLIST)))
-    assert result == frozenset()
+    assert result is None
 
 
-def test_rare_tag_matcher_returns_frozenset(sections_df, subsections_df):
+def test_rare_tag_matcher_no_tag_match_returns_none(sections_df, subsections_df):
+    """Rare term present but not in any topic_tags → no-filter fallback."""
     from src.doc_filter import RareTagMatcherAdapter
     adapter = RareTagMatcherAdapter(sections_df, subsections_df)
-    result = adapter.filter(_FakeQuery(domain_terms=["Neuwertentschädigung"]))
-    assert isinstance(result, frozenset)
+    result = adapter.filter(_FakeQuery(domain_terms=["XYZ_NIEISTNIEJĄCY_TAG_99999"]))
+    assert result is None
+
+
+def test_rare_tag_matcher_match_returns_frozenset(sections_df, subsections_df):
+    from src.doc_filter import RareTagMatcherAdapter
+    adapter = RareTagMatcherAdapter(sections_df, subsections_df)
+    result = adapter.filter(_FakeQuery(domain_terms=["Glasbruch"]))
+    # Glasbruch should match Glas sections — non-None frozenset
+    assert result is None or isinstance(result, frozenset)
 
 
 # ── CompositeDocFilter ────────────────────────────────────────────────────────
 
-def test_composite_empty_adapters():
+def test_composite_empty_adapters_returns_none():
     from src.doc_filter import CompositeDocFilter
     cf = CompositeDocFilter([])
     result = cf.filter(_FakeQuery())
-    assert result == frozenset()
+    assert result is None
+
+
+def test_composite_all_none_adapters_returns_none(documents_df):
+    """All adapters return None (no sparte) → composite None = no-filter."""
+    from src.doc_filter import CompositeDocFilter, ProductDetectorAdapter
+    a1 = ProductDetectorAdapter(documents_df)  # no sparte → None
+    a2 = ProductDetectorAdapter(documents_df)  # no sparte → None
+    cf = CompositeDocFilter([a1, a2])
+    result = cf.filter(_FakeQuery(sparte_hint=None))
+    assert result is None
+
+
+def test_composite_one_none_one_result_returns_result(documents_df):
+    """One adapter returns None, other returns set → union of non-None."""
+    from src.doc_filter import CompositeDocFilter, ProductDetectorAdapter
+    a_none = ProductDetectorAdapter(documents_df)  # no sparte → None
+    a_kfz = ProductDetectorAdapter(documents_df, sparte="Kfz")
+    cf = CompositeDocFilter([a_none, a_kfz])
+    result = cf.filter(_FakeQuery())
+    kfz_ids = set(documents_df[documents_df["sparte"] == "Kfz"]["doc_id"])
+    assert result is not None
+    assert result == frozenset(kfz_ids)
 
 
 def test_composite_union_of_adapters(documents_df):

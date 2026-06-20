@@ -12,6 +12,7 @@ REGISTRY: dict[str, str] = {
     "generator_compare": "llama-3.3-70b-versatile",
     "llm_selector": "llama-3.3-70b-versatile",
     "critic": "qwen/qwen3-32b",
+    "critic_ensemble": "llama-3.3-70b-versatile",
     # OpenRouter — batch
     "enrichment": "openai/gpt-4o-mini-2024-07-18",
 }

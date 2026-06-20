@@ -78,11 +78,17 @@ _SECTIONS = [
 
 
 class _AllowedDocFilter:
-    """Simple mock DocFilter that allows only specific doc_ids."""
+    """Active DocFilter — returns frozenset (may be empty = active+no-match)."""
     def __init__(self, allowed: set[str]):
         self._allowed = frozenset(allowed)
     def filter(self, query):
         return self._allowed
+
+
+class _NoFilterDocFilter:
+    """Returns None — signals no-filter (search all sections)."""
+    def filter(self, query):
+        return None
 
 
 @pytest.fixture
@@ -170,7 +176,15 @@ def test_doc_filter_hausrat_smart_only(retriever):
     assert all(r.doc_id == "hausrat_smart" for r in results)
 
 
-def test_doc_filter_empty_set_returns_empty(retriever):
+def test_none_means_no_filter(retriever):
+    """doc_filter returning None = no-filter → all retrieval units returned."""
+    df = _NoFilterDocFilter()
+    results = retriever.retrieve("test", top_k=10, doc_filter=df)
+    assert len(results) == 6  # same as without doc_filter
+
+
+def test_empty_frozenset_returns_empty(retriever):
+    """doc_filter returning frozenset() = active filter with no match → []."""
     df = _AllowedDocFilter(set())
     results = retriever.retrieve("test", top_k=4, doc_filter=df)
     assert results == []
@@ -208,3 +222,40 @@ def test_doc_filter_no_match_returns_empty(retriever):
     df = _AllowedDocFilter({"nonexistent_doc"})
     results = retriever.retrieve("x", top_k=4, doc_filter=df)
     assert results == []
+
+
+# ── F2: query_obj passthrough ─────────────────────────────────────────────────
+
+class _CapturingDocFilter:
+    """DocFilter that records the query_obj it received."""
+    def __init__(self, return_value=None):
+        self.received_query = None
+        self._return = return_value
+
+    def filter(self, query):
+        self.received_query = query
+        return self._return
+
+
+def test_query_obj_forwarded_to_doc_filter(retriever):
+    """retrieve_multi passes query_obj to doc_filter.filter()."""
+    cap = _CapturingDocFilter(return_value=None)
+    _FQ = type("FQ", (), {"sparte_hint": "Kfz", "domain_terms": ["Test"]})()
+    retriever.retrieve("test", doc_filter=cap, query_obj=_FQ)
+    assert cap.received_query is _FQ
+
+
+def test_query_obj_none_uses_fallback(retriever):
+    """Without query_obj, filter still receives some object (backward compat)."""
+    cap = _CapturingDocFilter(return_value=None)
+    retriever.retrieve("test", doc_filter=cap)
+    assert cap.received_query is not None
+
+
+def test_cross_branch_no_sparte_returns_all(retriever):
+    """query_obj with sparte_hint=None and domain_terms=[] → CompositeDocFilter → None → all sections."""
+    # Simulate CompositeDocFilter returning None for null-sparte cross-branch query
+    cap = _CapturingDocFilter(return_value=None)
+    _FQ = type("FQ", (), {"sparte_hint": None, "domain_terms": []})()
+    results = retriever.retrieve("Vergleich Glas Hausrat", top_k=10, doc_filter=cap, query_obj=_FQ)
+    assert len(results) == 6  # all retrieval units (no filter)

@@ -1,15 +1,16 @@
 """
 Critic: evaluates generated answer against source sections.
-Verdict: PASS | REGEN | ABSTAIN. Uses Groq llama-3.3-70b, temperature=0.
+Verdict: PASS | REGEN | ABSTAIN.
+F3: structured output (instructor + Pydantic CriticOutput), anti-over-abstain prompt.
+F4: run_critic() — REGEN loop + graceful PASS.
 """
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Callable, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from src.observability import get_logger
 
@@ -27,30 +28,78 @@ class CriticResult:
     verdict: CriticVerdict
     reason: str
     confidence: float
+    answer: Optional[str] = None
+    retried: bool = False
+    used_ensemble: bool = False
 
 
-class _CriticResponse(BaseModel):
-    verdict: CriticVerdict
-    reason: str
-    confidence: float
+class CriticOutput(BaseModel):
+    chain_of_thought: List[str] = Field(
+        default_factory=list,
+        description="Key facts checked — max 5 bullets, ≤15 words each",
+    )
+    reasoning: List[str] = Field(
+        default_factory=list,
+        description="Decision reasoning — exactly 1 bullet for PASS, max 2 for REGEN/ABSTAIN",
+    )
+    verdict: Literal["PASS", "REGEN", "ABSTAIN"]
+    confidence_score: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Confidence in the verdict (0.0 low, 1.0 high)",
+    )
+
+    @field_validator("chain_of_thought", "reasoning", mode="before")
+    @classmethod
+    def _coerce_str_list(cls, v):
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            v = [v]
+        out: list[str] = []
+        for item in v:
+            if isinstance(item, dict):
+                out.append("; ".join(f"{k}: {val}" for k, val in item.items()))
+            else:
+                out.append(str(item))
+        return out
 
 
 _SYSTEM_PROMPT = """\
-Du bist ein Qualitätsprüfer für ERGO Versicherungs-Antworten (B2B).
-Prüfe, ob die Antwort korrekt und vollständig aus den gegebenen Abschnitten ableitbar ist.
+Du bist ein strenger Fakten-Prüfer für ERGO Versicherungsantworten (B2B-Agent).
+Prüfe, ob die generierte Antwort durch die gegebenen Quell-Abschnitte gestützt wird.
 
-Antworte NUR mit einem JSON-Objekt:
-- verdict: "PASS" (korrekt und vollständig) | "REGEN" (regenerieren, z.B. zu kurz) | "ABSTAIN" (Halluzination oder keine Quellen)
-- reason: kurze Begründung auf Deutsch
-- confidence: 0.0–1.0
+BEWERTUNGSREGELN:
+- PASS: Jede Sachaussage ist durch den Kontext belegt (Paraphrasen und Synthese erlaubt).
+- REGEN: Antwort enthält einen spezifischen Fehler (falsche Zahl, falsches Datum, falsche Bedingung),
+  der aber im Kontext korrigierbar ist.
+- ABSTAIN: Antwort erfindet konkrete Beträge, Daten oder genannte Bedingungen,
+  die vollständig im Kontext fehlen — ODER Kontext ist völlig irrelevant zur Frage.
 
-Kein Kommentar, nur JSON.
+WICHTIG — DEFAULT TO PASS:
+- Hedging-Phrasen ("nicht explizit erwähnt", "Quellen geben nicht an", "nicht separat aufgeführt",
+  "kann nicht direkt verglichen werden") sind KEINE Halluzination → PASS.
+- Unvollständige Antworten (nur Teil der Frage beantwortet) → PASS, nicht ABSTAIN.
+- ABSTAIN NUR bei erfundenen Beträgen, Daten oder named conditions, die im Kontext fehlen.
+- REGEN NUR bei konkretem, korrigierbarem Sachfehler — NICHT für Stil, Länge oder Hedging.
+
+Antworte ausschließlich im geforderten strukturierten Format.
 """
 
 
 class Critic:
-    def __init__(self, client: Any, model: str = "qwen/qwen3-32b") -> None:
-        self._client = client
+    def __init__(
+        self,
+        client: Any,
+        model: str = "qwen/qwen3-32b",
+        _wrap_instructor: bool = True,
+    ) -> None:
+        if _wrap_instructor:
+            import instructor
+            self._client = instructor.from_groq(client, mode=instructor.Mode.JSON)
+        else:
+            self._client = client
         self._model = model
 
     def evaluate(
@@ -72,23 +121,138 @@ class Critic:
             f"Generierte Antwort:\n{answer}"
         )
 
-        resp = self._client.chat.completions.create(
+        output: CriticOutput = self._client.chat.completions.create(
             model=self._model,
+            response_model=CriticOutput,
             temperature=0,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            response_format={"type": "json_object"},
         )
-        raw = resp.choices[0].message.content
-        data = json.loads(raw)
-        parsed = _CriticResponse(**data)
+
+        reason = " ".join(output.reasoning) if output.reasoning else ""
+        verdict = CriticVerdict(output.verdict)
         result = CriticResult(
-            verdict=parsed.verdict,
-            reason=parsed.reason,
-            confidence=parsed.confidence,
+            verdict=verdict,
+            reason=reason,
+            confidence=output.confidence_score or 0.0,
+            answer=answer if verdict != CriticVerdict.ABSTAIN else None,
         )
         _log.info("step_done", step="critic", verdict=result.verdict.value,
                   confidence=result.confidence, reason=result.reason)
         return result
+
+
+def run_critic(
+    query: str,
+    answer: str,
+    sections: list[dict[str, Any]],
+    critic: "Critic",
+    generate_fn: Callable[[], str],
+    ensemble_critic: Optional["Critic"] = None,
+    enable_ensemble: bool = False,
+) -> CriticResult:
+    """Orchestrate primary evaluate + REGEN loop + optional ensemble + graceful PASS.
+
+    Verdicts never leak REGEN to the caller — only PASS or ABSTAIN returned.
+    """
+    try:
+        primary = critic.evaluate(query, answer, sections)
+    except Exception:
+        _log.warning("critic_primary_failed", query=query[:80])
+        return CriticResult(
+            verdict=CriticVerdict.PASS,
+            reason="primary failed — graceful pass",
+            confidence=0.0,
+            answer=answer,
+            retried=False,
+        )
+
+    if primary.verdict == CriticVerdict.ABSTAIN:
+        return CriticResult(
+            verdict=CriticVerdict.ABSTAIN,
+            reason=primary.reason,
+            confidence=primary.confidence,
+            answer=None,
+            retried=False,
+        )
+
+    if primary.verdict == CriticVerdict.REGEN:
+        new_answer = generate_fn()
+        try:
+            recheck = critic.evaluate(query, new_answer, sections)
+        except Exception:
+            _log.warning("critic_recheck_failed", query=query[:80])
+            return CriticResult(
+                verdict=CriticVerdict.PASS,
+                reason="recheck failed — graceful pass",
+                confidence=0.0,
+                answer=new_answer,
+                retried=True,
+            )
+        if recheck.verdict == CriticVerdict.ABSTAIN:
+            return CriticResult(
+                verdict=CriticVerdict.ABSTAIN,
+                reason=recheck.reason,
+                confidence=recheck.confidence,
+                answer=None,
+                retried=True,
+            )
+        # recheck=PASS or recheck=REGEN → accept regenerated answer, then ensemble
+        return _maybe_ensemble(query, new_answer, sections, recheck, new_answer, retried=True,
+                               ensemble_critic=ensemble_critic, enable_ensemble=enable_ensemble)
+
+    # primary.verdict == PASS — run optional ensemble
+    return _maybe_ensemble(query, answer, sections, primary, answer, retried=False,
+                           ensemble_critic=ensemble_critic, enable_ensemble=enable_ensemble)
+
+
+def _maybe_ensemble(
+    query: str,
+    current_answer: str,
+    sections: list[dict[str, Any]],
+    primary_result: CriticResult,
+    original_answer: str,
+    retried: bool,
+    ensemble_critic: Optional["Critic"],
+    enable_ensemble: bool,
+) -> CriticResult:
+    if not enable_ensemble or ensemble_critic is None:
+        return CriticResult(
+            verdict=CriticVerdict.PASS,
+            reason=primary_result.reason,
+            confidence=primary_result.confidence,
+            answer=current_answer,
+            retried=retried,
+            used_ensemble=False,
+        )
+    try:
+        ens = ensemble_critic.evaluate(query, current_answer, sections)
+    except Exception:
+        _log.warning("critic_ensemble_failed", query=query[:80])
+        return CriticResult(
+            verdict=CriticVerdict.PASS,
+            reason=primary_result.reason,
+            confidence=primary_result.confidence,
+            answer=current_answer,
+            retried=retried,
+            used_ensemble=False,
+        )
+    if ens.verdict == CriticVerdict.ABSTAIN:
+        return CriticResult(
+            verdict=CriticVerdict.ABSTAIN,
+            reason=ens.reason,
+            confidence=ens.confidence,
+            answer=None,
+            retried=retried,
+            used_ensemble=True,
+        )
+    return CriticResult(
+        verdict=CriticVerdict.PASS,
+        reason=ens.reason,
+        confidence=ens.confidence,
+        answer=current_answer,
+        retried=retried,
+        used_ensemble=True,
+    )

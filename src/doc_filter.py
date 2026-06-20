@@ -6,7 +6,7 @@ CompositeDocFilter returns union; empty union = no-filter signal.
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol
+from typing import Any, Optional, Protocol, List
 
 import pandas as pd
 
@@ -23,7 +23,8 @@ GENERIC_BLOCKLIST: frozenset[str] = frozenset({
 
 
 class DocFilter(Protocol):
-    def filter(self, query: Any) -> frozenset[str]:
+    def filter(self, query: Any) -> Optional[frozenset[str]]:
+        """Return frozenset[doc_id] to restrict, or None = no-filter (search all)."""
         ...
 
 
@@ -45,12 +46,12 @@ class ProductDetectorAdapter:
         self._sparte = sparte
         self._tarif = tarif
 
-    def filter(self, query: Any) -> frozenset[str]:
+    def filter(self, query: Any) -> Optional[frozenset[str]]:
         sparte = self._sparte
         if sparte is None:
             sparte = getattr(query, "sparte_hint", None)
         if not sparte:
-            return frozenset()
+            return None  # no sparte identified → no-filter signal
 
         mask = self._docs["sparte"] == sparte
         if self._tarif is not None:
@@ -80,11 +81,11 @@ class RareTagMatcherAdapter:
             ignore_index=True,
         )
 
-    def filter(self, query: Any) -> frozenset[str]:
+    def filter(self, query: Any) -> Optional[frozenset[str]]:
         terms = getattr(query, "domain_terms", []) or []
         rare = [t for t in terms if t not in GENERIC_BLOCKLIST]
         if not rare:
-            return frozenset()
+            return None  # no rare terms → no-filter fallback
 
         matched_ids: set[str] = set()
         for _, row in self._combined.iterrows():
@@ -95,17 +96,29 @@ class RareTagMatcherAdapter:
             if tag_set & set(rare):
                 matched_ids.add(str(row["doc_id"]))
 
+        if not matched_ids:
+            return None  # rare terms present but no tag match → no-filter fallback
         return frozenset(matched_ids)
 
 
 class CompositeDocFilter:
-    """Union of adapter results. Empty union → frozenset() (no-filter signal)."""
+    """Union of adapter results.
+    None = no-filter (all adapters returned None — search everywhere).
+    frozenset() = active filter with no matches → empty result.
+    """
 
     def __init__(self, adapters: list[DocFilter]) -> None:
         self._adapters = adapters
 
-    def filter(self, query: Any) -> frozenset[str]:
-        result: frozenset[str] = frozenset()
+    def filter(self, query: Any) -> Optional[frozenset[str]]:
+        non_none: List[frozenset[str]] = []
         for adapter in self._adapters:
-            result = result | adapter.filter(query)
+            r = adapter.filter(query)
+            if r is not None:
+                non_none.append(r)
+        if not non_none:
+            return None  # all adapters returned None → no-filter
+        result: frozenset[str] = frozenset()
+        for fs in non_none:
+            result = result | fs
         return result

@@ -86,12 +86,14 @@ class Retriever:
         top_k: int = 5,
         section_types: Optional[list[str]] = None,
         doc_filter: Optional[Any] = None,
+        query_obj: Optional[Any] = None,
     ) -> list[RetrievalResult]:
         return self.retrieve_multi(
             queries=[query],
             top_k=top_k,
             section_types=section_types,
             doc_filter=doc_filter,
+            query_obj=query_obj,
         )
 
     def retrieve_multi(
@@ -100,6 +102,7 @@ class Retriever:
         top_k: int = 5,
         section_types: Optional[list[str]] = None,
         doc_filter: Optional[Any] = None,
+        query_obj: Optional[Any] = None,
     ) -> list[RetrievalResult]:
         """Retrieve using multiple queries (normalized_query + paraphrases).
 
@@ -118,20 +121,27 @@ class Retriever:
 
         # ── Step 1: DocFilter ─────────────────────────────────────────────────
         if doc_filter is not None:
-            # Use first query as proxy; DocFilter protocol doesn't require ExpandedQuery
-            allowed_ids = doc_filter.filter(type("_Q", (), {"sparte_hint": None, "domain_terms": []})())
-            if not allowed_ids:
+            # Use provided query_obj (ExpandedQuery) so DocFilter reads real sparte_hint/domain_terms.
+            # Fall back to empty proxy only for legacy callers that omit query_obj.
+            _q = query_obj if query_obj is not None else type("_Q", (), {"sparte_hint": None, "domain_terms": []})()
+            allowed_ids = doc_filter.filter(_q)
+            if allowed_ids is None:
+                # None = no-filter → search all sections (F2 will pass real query_obj)
+                positions = list(range(len(self._sections)))
+            elif not allowed_ids:
+                # frozenset() = active filter with no matches → empty result
                 _log.info("step_done", step="retriever", results_count=0,
                           reason="doc_filter_empty")
                 return []
-            positions = [
-                i for i, s in enumerate(self._sections)
-                if s["doc_id"] in allowed_ids
-            ]
-            if not positions:
-                _log.info("step_done", step="retriever", results_count=0,
-                          reason="no_candidates_after_doc_filter")
-                return []
+            else:
+                positions = [
+                    i for i, s in enumerate(self._sections)
+                    if s["doc_id"] in allowed_ids
+                ]
+                if not positions:
+                    _log.info("step_done", step="retriever", results_count=0,
+                              reason="no_candidates_after_doc_filter")
+                    return []
         else:
             positions = list(range(len(self._sections)))
 

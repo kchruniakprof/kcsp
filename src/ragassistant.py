@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from src.critic import Critic, CriticVerdict
+from src.critic import Critic, CriticVerdict, run_critic
 from src.doc_filter import CompositeDocFilter, ProductDetectorAdapter, RareTagMatcherAdapter
 from src.generator import AnswerMode, Generator
 from src.observability import get_logger
@@ -58,6 +58,8 @@ class RAGAssistant:
         documents_df: Optional[pd.DataFrame] = None,
         sections_df: Optional[pd.DataFrame] = None,
         subsections_df: Optional[pd.DataFrame] = None,
+        ensemble_critic: Optional[Critic] = None,
+        enable_ensemble: bool = False,
     ) -> None:
         self._query_expansion = query_expansion
         self._retriever = retriever
@@ -68,6 +70,8 @@ class RAGAssistant:
         self._documents_df = documents_df
         self._sections_df = sections_df
         self._subsections_df = subsections_df
+        self._ensemble_critic = ensemble_critic
+        self._enable_ensemble = enable_ensemble
 
     def ask(self, query: str) -> FinalAnswer:
         _log.info("pipeline_start", query=query)
@@ -108,6 +112,7 @@ class RAGAssistant:
             top_k=self._top_k,
             section_types=expanded.section_types or None,
             doc_filter=doc_filter,
+            query_obj=expanded,
         )
 
         if not results:
@@ -142,8 +147,20 @@ class RAGAssistant:
                 }
                 for r in results
             ]
-            critic_result = self._critic.evaluate(
-                expanded.normalized_query, generated.answer, critic_sections
+
+            def _generate_fn() -> str:
+                return self._generator.generate(
+                    expanded.normalized_query, generator_sections, mode=mode
+                ).answer
+
+            critic_result = run_critic(
+                query=expanded.normalized_query,
+                answer=generated.answer,
+                sections=critic_sections,
+                critic=self._critic,
+                generate_fn=_generate_fn,
+                ensemble_critic=self._ensemble_critic,
+                enable_ensemble=self._enable_ensemble,
             )
         else:
             critic_result = None
@@ -162,7 +179,12 @@ class RAGAssistant:
 
         # 6. Cross-sell hint — append to answer text so it's visible
         cross_sell: Optional[list[str]] = None
-        answer_text = generated.answer
+        # Use regenerated answer if critic ran REGEN→PASS; else use original generated answer
+        answer_text = (
+            critic_result.answer
+            if critic_result is not None and critic_result.answer is not None
+            else generated.answer
+        )
         if self._enable_cross_sell and expanded.sparte_hint:
             hints = _CROSS_SELL_MAP.get(expanded.sparte_hint, [])
             cross_sell = hints if hints else None

@@ -5,7 +5,7 @@
 parquet/
 sources/
 *.log
-results.json
+results*.json
 eval_stderr.log
 logs_failing.txt
 
