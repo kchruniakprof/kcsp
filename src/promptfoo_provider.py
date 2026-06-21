@@ -38,7 +38,6 @@ def _get_rag():
 
     from src.critic import Critic
     from src.generator import Generator
-    from src.llm_selector import ContextSelector
     from src.llm_providers import groq_client
     from src.query_expansion import QueryExpansion
     from src.ragassistant import RAGAssistant
@@ -87,13 +86,6 @@ def _get_rag():
     )
 
 
-@lru_cache(maxsize=1)
-def _get_selector():
-    """Shadow ContextSelector (threshold=None) for E1 calibration."""
-    from src.llm_selector import ContextSelector
-    return ContextSelector(threshold=None)
-
-
 # ---------------------------------------------------------------------------
 # Promptfoo provider interface
 # ---------------------------------------------------------------------------
@@ -102,38 +94,6 @@ def call_api(prompt: str, options: dict[str, Any], context: dict[str, Any]) -> d
     try:
         rag = _get_rag()
         result = rag.ask(prompt)
-
-        # Shadow-score via ContextSelector for E1 EMBED_THRESHOLD calibration
-        selector_confidence: float | None = None
-        try:
-            from src.context_pruner import PrunedChunk
-            from src.retriever import RetrievalResult
-            # Re-run retrieval to get candidates for selector scoring
-            # Use cached internals to avoid re-encoding
-            selector = _get_selector()
-            # Build PrunedChunk list from last retrieval results stored in result
-            # Since we don't cache last retrieval, run a lightweight shadow pass
-            # via the retriever directly — sources are already in result.sources
-            # Skip shadow if abstained (no candidates to score)
-            if not result.abstained and result.sources:
-                # Collect pruned candidates from retriever for shadow scoring
-                # We use the retriever's indexed sections to build PrunedChunks
-                r = rag._retriever
-                candidates = []
-                for sec_id in result.sources:
-                    sec = next((s for s in r._sections if s["section_id"] == sec_id), None)
-                    if sec:
-                        from src.context_pruner import ContextPruner
-                        pc = r._pruner.prune(sec["markdown"])
-                        candidates.append(pc)
-                if candidates:
-                    sel_result = selector.select(candidates, query=prompt)
-                    from src.llm_selector import SelectedChunk
-                    if isinstance(sel_result, SelectedChunk):
-                        selector_confidence = sel_result.confidence
-        except Exception:
-            pass  # shadow scoring failure must never break eval
-
         return {
             "output": result.answer,
             "metadata": {
@@ -142,7 +102,6 @@ def call_api(prompt: str, options: dict[str, Any], context: dict[str, Any]) -> d
                 "breadcrumbs": result.breadcrumbs,
                 "intent": result.intent.value,
                 "cross_sell": result.cross_sell,
-                "selector_confidence": selector_confidence,
             },
         }
     except Exception as exc:

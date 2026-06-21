@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from src.observability import get_logger
+from src.schemas import SectionRecord
 
 _log = get_logger("generator")
 
@@ -54,7 +55,7 @@ class Generator:
     def generate(
         self,
         query: str,
-        sections: list[dict[str, Any]],
+        sections: list[SectionRecord],
         mode: AnswerMode = AnswerMode.VERBATIM,
     ) -> GeneratedAnswer:
         _log.info("step_start", step="generator", mode=mode.value,
@@ -75,7 +76,7 @@ class Generator:
 
     # ------------------------------------------------------------------
 
-    def _verbatim(self, query: str, sections: list[dict[str, Any]]) -> GeneratedAnswer:
+    def _verbatim(self, query: str, sections: list[SectionRecord]) -> GeneratedAnswer:
         context = self._build_context(sections)
         prompt = f"Frage: {query}\n\nAbschnitte:\n{context}"
         answer = self._call(prompt, system=_VERBATIM_SYSTEM)
@@ -86,7 +87,7 @@ class Generator:
             breadcrumbs=[s["breadcrumb"] for s in sections],
         )
 
-    def _compare(self, query: str, sections: list[dict[str, Any]]) -> GeneratedAnswer:
+    def _compare(self, query: str, sections: list[SectionRecord]) -> GeneratedAnswer:
         context = self._build_context(sections)
         prompt = f"Vergleichsfrage: {query}\n\nAbschnitte:\n{context}"
         answer = self._call(prompt, system=_COMPARE_SYSTEM, model=_MODEL_COMPARE)
@@ -109,7 +110,7 @@ class Generator:
         return resp.choices[0].message.content
 
     @staticmethod
-    def _build_context(sections: list[dict[str, Any]]) -> str:
+    def _build_context(sections: list[SectionRecord]) -> str:
         parts = []
         for s in sections:
             bc = s.get("breadcrumb", "")

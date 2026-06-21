@@ -13,6 +13,7 @@ from typing import Any, Callable, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 from src.observability import get_logger
+from src.schemas import SectionRecord
 
 _log = get_logger("critic")
 
@@ -116,7 +117,7 @@ class Critic:
         self,
         query: str,
         answer: str,
-        sections: list[dict[str, Any]],
+        sections: list[SectionRecord],
     ) -> CriticResult:
         _log.info("step_start", step="critic", model=self._model,
                   answer_len=len(answer), sections_count=len(sections))
@@ -157,7 +158,7 @@ class Critic:
 def run_critic(
     query: str,
     answer: str,
-    sections: list[dict[str, Any]],
+    sections: list[SectionRecord],
     critic: "Critic",
     generate_fn: Callable[[], str],
     ensemble_critic: Optional["Critic"] = None,

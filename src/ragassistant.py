@@ -19,6 +19,7 @@ from src.generator import AnswerMode, Generator
 from src.observability import get_logger
 from src.query_expansion import Intent, QueryExpansion
 from src.retriever import Retriever
+from src.schemas import SectionRecord
 
 _log = get_logger("ragassistant")
 
@@ -123,29 +124,22 @@ class RAGAssistant:
                 intent=expanded.intent, abstained=True,
             )
 
-        # 4. Generate — uses verbatim markdown (whitelist guarantee)
-        generator_sections = [
-            {
-                "section_id": r.section_id,
-                "heading": r.heading,
-                "markdown": r.markdown,
-                "breadcrumb": r.breadcrumb,
-            }
+        # 4. Build typed section records (full markdown for both Generator and Critic)
+        sections: list[SectionRecord] = [
+            SectionRecord(
+                section_id=r.section_id,
+                heading=r.heading,
+                markdown=r.markdown,
+                breadcrumb=r.breadcrumb,
+            )
             for r in results
         ]
-        generated = self._generator.generate(expanded.normalized_query, generator_sections, mode=mode)
 
-        # 5. Critic — uses pruned_markdown (shorter LLM context); skipped for COMPARE
+        generated = self._generator.generate(expanded.normalized_query, sections, mode=mode)
+
+        # 5. Critic — skipped for COMPARE
         if mode != AnswerMode.COMPARE:
-            critic_sections = [
-                {
-                    "section_id": r.section_id,
-                    "heading": r.heading,
-                    "markdown": r.markdown,
-                    "breadcrumb": r.breadcrumb,
-                }
-                for r in results
-            ]
+            critic_sections = sections
 
             def _generate_fn() -> str:
                 return self._generator.generate(

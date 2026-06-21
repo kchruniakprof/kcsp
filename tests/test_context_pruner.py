@@ -1,4 +1,4 @@
-"""Tests for context_pruner + embedding_pruner — TDD D3."""
+"""Tests for context_pruner — TDD D3."""
 import pytest
 
 _SHORT = "Kurzer Text unter zweitausend fünfhundert Zeichen."
@@ -59,55 +59,3 @@ def test_context_pruner_returns_pruned_chunk():
     result = ContextPruner().prune(_LONG)
     assert isinstance(result, PrunedChunk)
 
-
-# ── EmbeddingPruner ──────────────────────────────────────────────────────────
-
-def test_embedding_pruner_importable():
-    from src.embedding_pruner import EmbeddingPruner
-    assert EmbeddingPruner is not None
-
-
-def test_embedding_pruner_short_bypass(monkeypatch):
-    """Short chunk → pruned_text == verbatim_text (no model needed)."""
-    from src.embedding_pruner import EmbeddingPruner
-    ep = EmbeddingPruner.__new__(EmbeddingPruner)
-    ep._model = None  # no model loaded
-    result = ep.prune(_SHORT)
-    assert result.pruned_text == result.verbatim_text
-
-
-def test_embedding_pruner_verbatim_unchanged(monkeypatch):
-    """verbatim_text always equals original."""
-    from src.embedding_pruner import EmbeddingPruner
-    import numpy as np
-
-    class _FakeModel:
-        def encode(self, sentences, **kw):
-            n = len(sentences)
-            return np.random.rand(n, 4).astype("float32")
-
-    ep = EmbeddingPruner.__new__(EmbeddingPruner)
-    ep._model = _FakeModel()
-    result = ep.prune(_LONG)
-    assert result.verbatim_text == _LONG
-
-
-def test_embedding_pruner_returns_pruned_chunk():
-    from src.context_pruner import PrunedChunk
-    from src.embedding_pruner import EmbeddingPruner
-    ep = EmbeddingPruner.__new__(EmbeddingPruner)
-    ep._model = None
-    result = ep.prune(_SHORT)
-    assert isinstance(result, PrunedChunk)
-
-
-def test_embedding_pruner_does_not_import_openai_instructor():
-    """EmbeddingPruner must not depend on openai/instructor directly."""
-    import importlib, sys
-    mod = importlib.import_module("src.embedding_pruner")
-    src = getattr(mod, "__file__", "")
-    import re
-    with open(src, encoding="utf-8") as f:
-        code = f.read()
-    assert "import openai" not in code
-    assert "import instructor" not in code

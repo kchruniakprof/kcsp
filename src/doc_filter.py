@@ -6,9 +6,66 @@ CompositeDocFilter returns union; empty union = no-filter signal.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Optional, Protocol, List
 
 import pandas as pd
+
+from src.constants import SPARTES
+
+_HAUSRAT_KEYWORDS_RE = re.compile(r"Hausrat|Haushalt|Wohnung", re.IGNORECASE)
+
+
+def _detect_tarif(normalized_query: str, tarif_names: list[str]) -> Optional[str]:
+    """Deterministic word-boundary tarif match. Longest-first; rider aliases from split('+')."""
+    candidates = sorted(tarif_names, key=len, reverse=True)
+    for t in candidates:
+        tokens = [t] + t.split("+")[1:]  # full compound + rider tokens only (not base)
+        for tok in tokens:
+            if re.search(rf"\b{re.escape(tok)}\b", normalized_query, re.IGNORECASE):
+                return t
+    return None
+
+
+def resolve_doc_set(
+    sparte_hints: list[str],
+    tarif: Optional[str],
+    documents_df: pd.DataFrame,
+    normalized_query: str = "",
+) -> Optional[frozenset[str]]:
+    """Map sparte_hints + tarif → frozenset[doc_id], or None = no filter."""
+    if not sparte_hints:
+        return None
+
+    hints = [s for s in sparte_hints if s in SPARTES]
+    if not hints:
+        return None
+
+    if len(hints) == 1:
+        sparte = hints[0]
+        mask = documents_df["sparte"] == sparte
+        if tarif is not None:
+            mask &= documents_df["tarif"] == tarif
+        result = frozenset(documents_df.loc[mask, "doc_id"].tolist())
+    else:
+        # multi-sparte: union, ignore tarif
+        mask = documents_df["sparte"].isin(hints)
+        result = frozenset(documents_df.loc[mask, "doc_id"].tolist())
+
+    # related_sparte safety-net: Glas/Schmuck + Hausrat keyword in query → add Hausrat
+    glas_schmuck = {"Glas", "Schmuck"}
+    if (
+        glas_schmuck & set(hints)
+        and "Hausrat" not in hints
+        and normalized_query
+        and _HAUSRAT_KEYWORDS_RE.search(normalized_query)
+    ):
+        hausrat_ids = frozenset(
+            documents_df.loc[documents_df["sparte"] == "Hausrat", "doc_id"].tolist()
+        )
+        result = result | hausrat_ids
+
+    return result
 
 
 GENERIC_BLOCKLIST: frozenset[str] = frozenset({
@@ -29,36 +86,32 @@ class DocFilter(Protocol):
 
 
 class ProductDetectorAdapter:
-    """Maps sparte/tarif → frozenset[doc_id] via documents.parquet lookup.
+    """Maps sparte_hints + tarif → frozenset[doc_id] via resolve_doc_set.
 
-    sparte/tarif in constructor take priority; falls back to query.sparte_hint.
-    tarif=None → return all doc_ids for the sparte.
-    Unknown tarif → frozenset() (no match, no exception).
+    tarif is supplied by caller (detected deterministically by RAGAssistant).
+    sparte_hints are read from query object.
     """
 
     def __init__(
         self,
         documents_df: pd.DataFrame,
-        sparte: Optional[str] = None,
         tarif: Optional[str] = None,
+        # legacy compat: sparte= accepted but ignored in favour of query.sparte_hints
+        sparte: Optional[str] = None,
     ) -> None:
         self._docs = documents_df
-        self._sparte = sparte
         self._tarif = tarif
+        self._legacy_sparte = sparte  # kept for old tests that pass sparte= directly
 
     def filter(self, query: Any) -> Optional[frozenset[str]]:
-        sparte = self._sparte
-        if sparte is None:
-            sparte = getattr(query, "sparte_hint", None)
-        if not sparte:
-            return None  # no sparte identified → no-filter signal
+        sparte_hints: list[str] = list(getattr(query, "sparte_hints", None) or [])
+        normalized_query: str = getattr(query, "normalized_query", "") or ""
 
-        mask = self._docs["sparte"] == sparte
-        if self._tarif is not None:
-            mask &= self._docs["tarif"] == self._tarif
+        # legacy fallback: if query has no sparte_hints but old sparte= was provided
+        if not sparte_hints and self._legacy_sparte:
+            sparte_hints = [self._legacy_sparte]
 
-        matched = self._docs.loc[mask, "doc_id"]
-        return frozenset(matched.tolist())
+        return resolve_doc_set(sparte_hints, self._tarif, self._docs, normalized_query)
 
 
 class RareTagMatcherAdapter:
@@ -102,23 +155,28 @@ class RareTagMatcherAdapter:
 
 
 class CompositeDocFilter:
-    """Union of adapter results.
-    None = no-filter (all adapters returned None — search everywhere).
-    frozenset() = active filter with no matches → empty result.
+    """Gate + optional rare narrow.
+
+    adapters[0] = gate (ProductDetectorAdapter): None → no-filter; frozenset → restrict
+    adapters[1] = rare (RareTagMatcherAdapter, optional): narrows within gate
+
+    Semantics:
+      gate=None → None (search all)
+      gate set, rare=None → gate
+      gate set, rare set → gate ∩ rare if non-empty, else gate (cross-sparte rare → ignore)
     """
 
     def __init__(self, adapters: list[DocFilter]) -> None:
         self._adapters = adapters
 
     def filter(self, query: Any) -> Optional[frozenset[str]]:
-        non_none: List[frozenset[str]] = []
-        for adapter in self._adapters:
-            r = adapter.filter(query)
-            if r is not None:
-                non_none.append(r)
-        if not non_none:
-            return None  # all adapters returned None → no-filter
-        result: frozenset[str] = frozenset()
-        for fs in non_none:
-            result = result | fs
-        return result
+        if not self._adapters:
+            return None
+        gate_result = self._adapters[0].filter(query)
+        if gate_result is None:
+            return None  # gate says no-filter → pass-through
+        rare_result = self._adapters[1].filter(query) if len(self._adapters) > 1 else None
+        if rare_result is None:
+            return gate_result
+        narrowed = gate_result & rare_result
+        return narrowed if narrowed else gate_result  # cross-sparte rare → ignore, keep gate

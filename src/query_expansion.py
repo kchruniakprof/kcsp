@@ -10,6 +10,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.constants import SPARTES
 from src.llm_providers import groq_client
 from src.model_registry import REGISTRY
 from src.observability import get_logger
@@ -87,10 +88,8 @@ class ExpandedQuery(BaseModel):
     @field_validator("sparte_hints")
     @classmethod
     def _check_sparte_hints(cls, v: list) -> list:
-        valid = {"Kfz", "Hausrat", "Glas", "Schmuck"}
-        # deduplicate preserving order, filter invalid values
         seen: set = set()
-        deduped = [x for x in v if x in valid and not (x in seen or seen.add(x))]
+        deduped = [x for x in v if x in SPARTES and not (x in seen or seen.add(x))]
         return deduped[:4]
 
     @property

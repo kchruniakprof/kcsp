@@ -9,30 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from src.constants import SECTION_TYPES_FULL as ENUM_16
 from src.md_sanitizer import sanitize
-
-# ---------------------------------------------------------------------------
-# Enum-16 section types
-# ---------------------------------------------------------------------------
-
-ENUM_16: list[str] = [
-    "INSURER_ID",
-    "PRODUCT_STRUCTURE",
-    "RISK_OBJECT",
-    "WHAT_IS_INSURED",
-    "EXCLUSIONS",
-    "LIMITS_COMPENSATION",
-    "CLAIMS_SETTLEMENT",
-    "INSURED_PERSONS",
-    "WHERE_COVERED",
-    "OBLIGATIONS",
-    "PAYMENT",
-    "CONTRACT_FORMATION",
-    "TERM_CANCELLATION",
-    "PRICING_DISCOUNT",
-    "COMPLAINTS_LAW",
-    "SPECIAL_PROVISIONS",
-]
 
 # ---------------------------------------------------------------------------
 # Data models
