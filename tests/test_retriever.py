@@ -92,14 +92,34 @@ class _NoFilterDocFilter:
         return None
 
 
-@pytest.fixture
-def mock_embedder():
-    emb = MagicMock()
+def _make_onehot_encoder(dim: int = 20):
+    """Returns an encode fn assigning unique one-hot vectors per unique text.
+
+    Ensures pairwise cosine = 0 between distinct texts → D2 dedup never fires.
+    """
+    _cache: dict[str, np.ndarray] = {}
+    _counter = [0]
+
     def encode(texts, **kwargs):
         if isinstance(texts, str):
             texts = [texts]
-        return np.array([[1.0, 0.0, 0.0, 0.0]] * len(texts))
-    emb.encode.side_effect = encode
+        result = []
+        for t in texts:
+            if t not in _cache:
+                vec = np.zeros(dim, dtype=np.float32)
+                vec[_counter[0] % dim] = 1.0
+                _cache[t] = vec
+                _counter[0] += 1
+            result.append(_cache[t])
+        return np.array(result, dtype=np.float32)
+
+    return encode
+
+
+@pytest.fixture
+def mock_embedder():
+    emb = MagicMock()
+    emb.encode.side_effect = _make_onehot_encoder(dim=20)
     return emb
 
 
@@ -368,7 +388,7 @@ def test_a2_pool_lte50_reranker_gets_full_pool(mock_embedder):
 
 
 # Cycle 7 — A2: pool_k policy — pool >50 → reranker gets top-30
-def test_a2_pool_gt50_reranker_gets_top30(mock_embedder):
+def test_a2_pool_gt50_reranker_gets_top30():
     """A2: When filtered pool >50 sections, reranker receives only top-30 by dense score."""
     import numpy as np
 
@@ -390,10 +410,8 @@ def test_a2_pool_gt50_reranker_gets_top30(mock_embedder):
     ]
 
     emb = MagicMock()
-    emb.encode.side_effect = lambda texts, **kw: np.array(
-        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1),
-        dtype=np.float32,
-    )
+    # Use orthogonal one-hot embeddings → cosine=0 between sections → no dedup
+    emb.encode.side_effect = _make_onehot_encoder(dim=60)
 
     mock_reranker = MagicMock()
     mock_reranker.rerank.side_effect = lambda q, results: results[:5]
@@ -410,7 +428,7 @@ def test_a2_pool_gt50_reranker_gets_top30(mock_embedder):
 
 
 # Cycle 8 — A2: pool exactly 50 → treated as ≤50 (full pool)
-def test_a2_pool_exactly50_gets_full_pool(mock_embedder):
+def test_a2_pool_exactly50_gets_full_pool():
     """A2: Pool of exactly 50 sections → reranker receives all 50."""
     import numpy as np
 
@@ -431,10 +449,7 @@ def test_a2_pool_exactly50_gets_full_pool(mock_embedder):
     ]
 
     emb = MagicMock()
-    emb.encode.side_effect = lambda texts, **kw: np.array(
-        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1),
-        dtype=np.float32,
-    )
+    emb.encode.side_effect = _make_onehot_encoder(dim=60)
 
     mock_reranker = MagicMock()
     mock_reranker.rerank.side_effect = lambda q, results: results[:5]
@@ -646,9 +661,8 @@ def test_d1_generic_blocklist_not_forced():
     ]
 
     emb = MagicMock()
-    emb.encode.side_effect = lambda texts, **kw: np.array(
-        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1)
-    )
+    # Use orthogonal one-hot embeddings → cosine=0 between sections → no dedup
+    emb.encode.side_effect = _make_onehot_encoder(dim=60)
 
     mock_reranker = MagicMock()
     captured = []
@@ -716,3 +730,178 @@ def test_d1_forced_not_bypass_doc_filter():
         f"Hausrat section 701 must NOT be forced in — it's outside DocFilter gate. Results: {result_ids}"
     )
     assert 700 in result_ids, "Kfz Naturgefahren section 700 must be in results"
+
+
+# ── D2: near-duplicate dedup ──────────────────────────────────────────────────
+
+def _make_near_dup_sections(n: int, *, identical_emb: bool = True) -> tuple[list[dict], np.ndarray]:
+    """Build n nearly-identical sections with pre-computed embeddings."""
+    secs = [
+        {
+            "section_id": 800 + i,
+            "doc_id": f"hausrat_{i}",
+            "sparte": "Hausrat",
+            "tarif": f"Tarif{i}",
+            "heading": f"Was ist versichert {i}",
+            "markdown": "Versichert ist der gesamte Hausrat des Versicherungsnehmers.",
+            "breadcrumb": f"Hausrat > §1 > {i}",
+            "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [],
+            "is_retrieval_unit": True,
+        }
+        for i in range(n)
+    ]
+    # All sections get emb [1.0, 0.0] (identical), or slightly varied if not identical_emb
+    if identical_emb:
+        embs = np.array([[1.0, 0.0]] * n, dtype=np.float32)
+    else:
+        # cosine ~0.95 — below dedup threshold
+        embs = np.array([[1.0, 0.0], [0.95, 0.31]], dtype=np.float32)
+    return secs, embs
+
+
+def test_d2_registry_has_dedup_threshold():
+    """D2: REGISTRY must have 'dedup_threshold' key with value 0.98."""
+    assert "dedup_threshold" in REGISTRY
+    assert float(REGISTRY["dedup_threshold"]) == 0.98
+
+
+def test_d2_retrieval_result_has_shared_tarifs():
+    """D2: RetrievalResult must have shared_tarifs field (list[str])."""
+    r = RetrievalResult(
+        section_id=1, doc_id="d", sparte="K", tarif="T",
+        heading="H", markdown="M", pruned_markdown="M", breadcrumb="B",
+        score=0.9, section_types=[], topic_tags=[],
+    )
+    assert hasattr(r, "shared_tarifs")
+    assert isinstance(r.shared_tarifs, list)
+
+
+def test_d2_near_dups_collapsed_to_one():
+    """D2: 4 near-identical chunks (cosine=1.0 > 0.98) → 1 representative in pool."""
+    import numpy as np
+
+    secs, embs = _make_near_dup_sections(4)
+    # Give increasing scores so representative is well-defined
+    scores = np.array([0.7, 0.9, 0.8, 0.6], dtype=np.float32)
+
+    emb = MagicMock()
+    call_count = [0]
+    def encode_d2(texts, **kw):
+        texts = [texts] if isinstance(texts, str) else list(texts)
+        count = call_count[0]
+        call_count[0] += 1
+        if count == 0:
+            # Building index — return pre-computed section embs
+            return embs
+        else:
+            # Query encoding
+            return np.array([[1.0, 0.0]] * len(texts), dtype=np.float32)
+    emb.encode.side_effect = encode_d2
+
+    mock_reranker = MagicMock()
+    pool_received = []
+    def capture(q, results):
+        pool_received.extend(results)
+        return results[:1]
+    mock_reranker.rerank.side_effect = capture
+
+    r = Retriever(sections=secs, embedder=emb, reranker=mock_reranker)
+    results = r.retrieve("Was ist versichert?", top_k=1)
+
+    # 4 near-identical sections → collapsed to 1 before reranker
+    assert mock_reranker.rerank.called
+    assert len(pool_received) == 1, (
+        f"4 near-dups should collapse to 1, reranker received {len(pool_received)}"
+    )
+    rep = pool_received[0]
+    assert len(rep.shared_tarifs) == 4, (
+        f"shared_tarifs must list all 4 tarifs, got {rep.shared_tarifs}"
+    )
+
+
+def test_d2_representative_is_highest_score():
+    """D2: representative of deduplicated cluster is chunk with max boosted score."""
+    import numpy as np
+
+    secs, embs = _make_near_dup_sections(3)
+    # Assign distinct scores: section 801 gets highest score
+    # We need to control scores — use embs that produce known cosine with query
+    # query emb = [1,0], so score = emb[0]
+    embs = np.array([[0.7, 0.0], [0.9, 0.0], [0.5, 0.0]], dtype=np.float32)
+
+    emb = MagicMock()
+    call_count = [0]
+    def encode_d2(texts, **kw):
+        texts = [texts] if isinstance(texts, str) else list(texts)
+        count = call_count[0]
+        call_count[0] += 1
+        if count == 0:
+            return embs
+        return np.array([[1.0, 0.0]] * len(texts), dtype=np.float32)
+    emb.encode.side_effect = encode_d2
+
+    mock_reranker = MagicMock()
+    pool_received = []
+    def capture(q, results):
+        pool_received.extend(results)
+        return results[:1]
+    mock_reranker.rerank.side_effect = capture
+
+    r = Retriever(sections=secs, embedder=emb, reranker=mock_reranker)
+    results = r.retrieve("Was?", top_k=1)
+
+    assert pool_received, "Reranker must have been called"
+    rep = pool_received[0]
+    assert rep.section_id == 801, (
+        f"Representative must be section 801 (highest score 0.9), got {rep.section_id}"
+    )
+
+
+def test_d2_below_threshold_not_collapsed():
+    """D2: chunks with cosine 0.95 (below 0.98 threshold) are NOT collapsed."""
+    import numpy as np
+
+    secs = [
+        {
+            "section_id": 810, "doc_id": "doc_a", "sparte": "K", "tarif": "T1",
+            "heading": "A", "markdown": "Content A.", "breadcrumb": "A",
+            "section_types": [], "topic_tags": [], "is_retrieval_unit": True,
+        },
+        {
+            "section_id": 811, "doc_id": "doc_b", "sparte": "K", "tarif": "T2",
+            "heading": "B", "markdown": "Content B.", "breadcrumb": "B",
+            "section_types": [], "topic_tags": [], "is_retrieval_unit": True,
+        },
+    ]
+    # cosine ≈ 0.951: [1,0] · [0.951, 0.309] = 0.951 (below threshold 0.98)
+    embs = np.array([[1.0, 0.0], [0.951, 0.309]], dtype=np.float32)
+
+    emb = MagicMock()
+    call_count = [0]
+    def encode_d2(texts, **kw):
+        texts = [texts] if isinstance(texts, str) else list(texts)
+        count = call_count[0]
+        call_count[0] += 1
+        if count == 0:
+            return embs
+        return np.array([[1.0, 0.0]] * len(texts), dtype=np.float32)
+    emb.encode.side_effect = encode_d2
+
+    mock_reranker = MagicMock()
+    pool_received = []
+    def capture(q, results):
+        pool_received.extend(results)
+        return results[:1]
+    mock_reranker.rerank.side_effect = capture
+
+    r = Retriever(sections=secs, embedder=emb, reranker=mock_reranker)
+    results = r.retrieve("test", top_k=1)  # top_k=1 < pool=2 → reranker called
+
+    assert mock_reranker.rerank.called
+    assert len(pool_received) == 2, (
+        f"cosine=0.95 < 0.98 threshold → 2 candidates must remain, got {len(pool_received)}"
+    )
+    assert all(res.shared_tarifs == [] for res in pool_received), (
+        "Non-deduped chunks must have empty shared_tarifs"
+    )

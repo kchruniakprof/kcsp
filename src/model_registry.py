@@ -5,7 +5,9 @@ Groq models: latency-sensitive steps (runtime path).
 OpenRouter models: quality-sensitive batch steps.
 """
 
-REGISTRY: dict[str, str] = {
+from typing import Any
+
+REGISTRY: dict[str, Any] = {
     # Groq — runtime
     "query_expansion": "meta-llama/llama-4-scout-17b-16e-instruct",
     "generator_verbatim": "llama-3.1-8b-instant",
@@ -16,4 +18,6 @@ REGISTRY: dict[str, str] = {
     "enrichment": "openai/gpt-4o-mini-2024-07-18",
     # Local reranker (cross-encoder)
     "reranker": "BAAI/bge-reranker-v2-m3",
+    # Retriever dedup threshold (tunable)
+    "dedup_threshold": 0.98,
 }

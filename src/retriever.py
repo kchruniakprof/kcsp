@@ -39,6 +39,7 @@ class RetrievalResult:
     score: float
     section_types: list[str]
     topic_tags: list[str]
+    shared_tarifs: list[str] = field(default_factory=list)
 
 
 class CrossEncoderReranker:
@@ -225,6 +226,7 @@ class Retriever:
             self._build_result(float(best_scores[ci]), positions[ci])
             for ci in top_idx
         ]
+        pool_embs: list[np.ndarray] = [cand_embs[ci] for ci in top_idx]
 
         # D1: append forced candidates not already in dense pool
         if _forced_positions:
@@ -232,6 +234,34 @@ class Retriever:
             for _ci, _pos in enumerate(positions):
                 if _pos in _forced_positions and _pos not in _in_pool:
                     candidates.append(self._build_result(float(best_scores[_ci]), _pos))
+                    pool_embs.append(cand_embs[_ci])
+
+        # ── D2: near-duplicate dedup (before reranker) ───────────────────────
+        _dedup_threshold = float(REGISTRY.get("dedup_threshold", 0.98))
+        if len(candidates) > 1:
+            _e = np.array(pool_embs, dtype=np.float32)
+            _norms = np.linalg.norm(_e, axis=1, keepdims=True)
+            _norms = np.where(_norms == 0, 1.0, _norms)
+            _ne = _e / _norms
+            _sim = _ne @ _ne.T
+            _merged: set[int] = set()
+            _deduped: list[RetrievalResult] = []
+            for _i in range(len(candidates)):
+                if _i in _merged:
+                    continue
+                _cluster = [_i]
+                for _j in range(_i + 1, len(candidates)):
+                    if _j not in _merged and _sim[_i, _j] > _dedup_threshold:
+                        _cluster.append(_j)
+                        _merged.add(_j)
+                _rep_i = max(_cluster, key=lambda _k: candidates[_k].score)
+                _rep = candidates[_rep_i]
+                if len(_cluster) > 1:
+                    _rep.shared_tarifs = [
+                        candidates[_k].tarif for _k in _cluster if candidates[_k].tarif
+                    ]
+                _deduped.append(_rep)
+            candidates = _deduped
 
         # ── Step 5: optional cross-encoder reranking ──────────────────────────
         if self._reranker is not None and pool_k_effective > top_k:

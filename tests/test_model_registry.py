@@ -17,10 +17,24 @@ def test_registry_has_required_keys():
     assert not missing, f"REGISTRY missing keys: {missing}"
 
 
-def test_registry_values_are_non_empty_strings():
+_STRING_KEYS = {
+    "query_expansion", "generator_verbatim", "generator_compare",
+    "critic", "critic_ensemble", "enrichment", "reranker",
+}
+
+
+def test_registry_model_values_are_non_empty_strings():
     from src.model_registry import REGISTRY
-    for key, val in REGISTRY.items():
+    for key in _STRING_KEYS:
+        val = REGISTRY[key]
         assert isinstance(val, str) and val, f"REGISTRY[{key!r}] must be non-empty string"
+
+
+def test_registry_dedup_threshold_is_float():
+    from src.model_registry import REGISTRY
+    assert "dedup_threshold" in REGISTRY
+    assert isinstance(REGISTRY["dedup_threshold"], float)
+    assert 0.0 < REGISTRY["dedup_threshold"] <= 1.0
 
 
 def test_query_expansion_default_model_from_registry(monkeypatch):
