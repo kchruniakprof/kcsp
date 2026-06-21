@@ -195,10 +195,11 @@ class Retriever:
                 if set(self._sections[pos].get("section_types", [])) & _section_types_set:
                     best_scores[ci] += _SECTION_TYPE_BOOST
 
-        # ── Step 4: top_k / pool_k ───────────────────────────────────────────
-        # When reranker is active and pool_k > top_k, fetch pool_k candidates
-        # for the bi-encoder pass so the cross-encoder can rerank a wider pool.
-        fetch_k = pool_k if (self._reranker is not None and pool_k > top_k) else top_k
+        # ── Step 4: A2 dynamic pool_k policy ─────────────────────────────────
+        # pool ≤50 → give reranker the full filtered set; pool >50 → cap at 30
+        n_candidates = len(positions)
+        pool_k_effective = n_candidates if n_candidates <= 50 else 30
+        fetch_k = pool_k_effective if (self._reranker is not None and pool_k_effective > top_k) else top_k
 
         if len(best_scores) <= fetch_k:
             top_idx = np.argsort(best_scores)[::-1]
@@ -212,7 +213,7 @@ class Retriever:
         ]
 
         # ── Step 5: optional cross-encoder reranking ──────────────────────────
-        if self._reranker is not None and pool_k > top_k:
+        if self._reranker is not None and pool_k_effective > top_k:
             results = self._reranker.rerank(queries[0], candidates)[:top_k]
         else:
             results = candidates[:top_k]

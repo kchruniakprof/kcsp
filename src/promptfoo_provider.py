@@ -41,7 +41,7 @@ def _get_rag():
     from src.llm_providers import groq_client
     from src.query_expansion import QueryExpansion
     from src.ragassistant import RAGAssistant
-    from src.retriever import Retriever
+    from src.retriever import CrossEncoderReranker, Retriever
 
     import instructor
     from src.model_registry import REGISTRY
@@ -63,7 +63,8 @@ def _get_rag():
     sections = retrieval_df.drop(columns=["embedding"]).to_dict("records")
 
     embedder = SentenceTransformer("BAAI/bge-m3")
-    retriever = Retriever(sections=sections, embedder=embedder, sec_embs=sec_embs)
+    retriever = Retriever(sections=sections, embedder=embedder, sec_embs=sec_embs,
+                          reranker=CrossEncoderReranker())
 
     enable_ensemble = os.environ.get("ENABLE_ENSEMBLE", "false").lower() == "true"
     ensemble_critic = (

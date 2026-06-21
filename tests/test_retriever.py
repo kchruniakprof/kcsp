@@ -349,18 +349,113 @@ def test_retriever_with_reranker_calls_rerank(mock_embedder):
     assert len(results) == 3
 
 
-# Cycle 6 — pool_k <= top_k: reranker is NOT called
-def test_retriever_reranker_not_called_when_pool_k_lte_top_k(mock_embedder):
+# Cycle 6 — A2: pool_k policy — pool ≤50 → reranker gets ALL candidates
+def test_a2_pool_lte50_reranker_gets_full_pool(mock_embedder):
+    """A2: When filtered pool ≤50 sections, reranker receives all of them (not truncated to 20)."""
     mock_reranker = MagicMock()
+    mock_reranker.rerank.side_effect = lambda q, results: results[:3]
+
+    # _SECTIONS has 6 retrieval units (≤50) — reranker must receive all 6
     r = Retriever(sections=_SECTIONS, embedder=mock_embedder, reranker=mock_reranker)
+    results = r.retrieve("Was ist versichert?", top_k=3)
 
-    # pool_k == top_k → no point reranking
-    r.retrieve("test", top_k=3, pool_k=3)
-    assert not mock_reranker.rerank.called
+    assert mock_reranker.rerank.called
+    candidates_passed = mock_reranker.rerank.call_args[0][1]
+    assert len(candidates_passed) == 6, (
+        f"Pool ≤50: reranker should receive all 6 candidates, got {len(candidates_passed)}"
+    )
+    assert len(results) == 3
 
-    # pool_k < top_k → also no reranking
-    r.retrieve("test", top_k=5, pool_k=3)
-    assert not mock_reranker.rerank.called
+
+# Cycle 7 — A2: pool_k policy — pool >50 → reranker gets top-30
+def test_a2_pool_gt50_reranker_gets_top30(mock_embedder):
+    """A2: When filtered pool >50 sections, reranker receives only top-30 by dense score."""
+    import numpy as np
+
+    # Build 55 sections (>50)
+    sections_large = [
+        {
+            "section_id": 1000 + i,
+            "doc_id": f"doc_{i}",
+            "sparte": "Kfz",
+            "tarif": "X",
+            "heading": f"Section {i}",
+            "markdown": f"Content {i}.",
+            "breadcrumb": f"Kfz > §{i}",
+            "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [],
+            "is_retrieval_unit": True,
+        }
+        for i in range(55)
+    ]
+
+    emb = MagicMock()
+    emb.encode.side_effect = lambda texts, **kw: np.array(
+        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1),
+        dtype=np.float32,
+    )
+
+    mock_reranker = MagicMock()
+    mock_reranker.rerank.side_effect = lambda q, results: results[:5]
+
+    r = Retriever(sections=sections_large, embedder=emb, reranker=mock_reranker)
+    results = r.retrieve("test", top_k=5)
+
+    assert mock_reranker.rerank.called
+    candidates_passed = mock_reranker.rerank.call_args[0][1]
+    assert len(candidates_passed) == 30, (
+        f"Pool >50: reranker should receive 30 candidates, got {len(candidates_passed)}"
+    )
+    assert len(results) == 5
+
+
+# Cycle 8 — A2: pool exactly 50 → treated as ≤50 (full pool)
+def test_a2_pool_exactly50_gets_full_pool(mock_embedder):
+    """A2: Pool of exactly 50 sections → reranker receives all 50."""
+    import numpy as np
+
+    sections_50 = [
+        {
+            "section_id": 2000 + i,
+            "doc_id": f"doc_{i}",
+            "sparte": "Kfz",
+            "tarif": "X",
+            "heading": f"Section {i}",
+            "markdown": f"Content {i}.",
+            "breadcrumb": f"Kfz > §{i}",
+            "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [],
+            "is_retrieval_unit": True,
+        }
+        for i in range(50)
+    ]
+
+    emb = MagicMock()
+    emb.encode.side_effect = lambda texts, **kw: np.array(
+        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1),
+        dtype=np.float32,
+    )
+
+    mock_reranker = MagicMock()
+    mock_reranker.rerank.side_effect = lambda q, results: results[:5]
+
+    r = Retriever(sections=sections_50, embedder=emb, reranker=mock_reranker)
+    results = r.retrieve("test", top_k=5)
+
+    assert mock_reranker.rerank.called
+    candidates_passed = mock_reranker.rerank.call_args[0][1]
+    assert len(candidates_passed) == 50, (
+        f"Pool=50: reranker should receive all 50, got {len(candidates_passed)}"
+    )
+
+
+# Cycle 9 — A2: reranker=None (no reranker) still works — backward compat
+def test_a2_no_reranker_still_returns_top_k(mock_embedder):
+    """A2: Without reranker, retrieve works normally — returns top_k without reranking."""
+    r = Retriever(sections=_SECTIONS, embedder=mock_embedder)  # no reranker
+    results = r.retrieve("Was ist versichert?", top_k=3)
+    assert len(results) <= 3
+    assert all(isinstance(res, RetrievalResult) for res in results)
 
 
 # ── A1: soft section_type boost (no hard-drop) ───────────────────────────────
