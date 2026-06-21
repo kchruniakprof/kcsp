@@ -9,10 +9,25 @@ Walidacja schematu po build.
 """
 import re
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
 from src.hierarchy_parser import DOCUMENT_CATALOG, parse_all
+
+_PAGE_REF_RE = re.compile(r"\([A-Z]+\.?\d*\)\s*\d+")
+_SINGLE_LETTER_RE = re.compile(r"^[A-Z]$")
+
+
+def is_index_section(heading: str, body: str) -> bool:
+    """True when section is an alphabetical index (no insurance content)."""
+    if _SINGLE_LETTER_RE.match(heading.strip()):
+        return True
+    lines = [l for l in body.splitlines() if l.strip()]
+    if not lines:
+        return False
+    matched = sum(1 for l in lines if _PAGE_REF_RE.search(l))
+    return matched / len(lines) >= 0.5
 
 
 def strip_noise(md: str) -> str:
@@ -97,6 +112,12 @@ def build(corpus_dir: Path, output_dir: Path) -> None:
         lambda r: True if r["level"] == 2 else int(r["section_id"]) not in l2_parent_ids,
         axis=1,
     )
+
+    # --- override: alphabetical index sections are never retrieval units ---
+    index_mask = all_df.apply(
+        lambda r: is_index_section(r["heading"], r["markdown"]), axis=1
+    )
+    all_df.loc[index_mask, "is_retrieval_unit"] = False
 
     # --- sections.parquet (L1 only) ---
     secs_df = (

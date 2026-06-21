@@ -97,6 +97,40 @@ Lub skonfigurować Git Credential Manager z właściwym kontem.
 
 ---
 
+## Problem 5 — Retrieval ranking: krótkie/specyficzne sekcje przegrywają z długimi generycznymi
+
+**Objaw:** Sekcje z bezpośrednią odpowiedzią są `is_retrieval_unit=True` i w puli, ale nie trafiają do top-5. Zamiast nich retriever zwraca ogólne sekcje o zakresie obowiązywania (§A Fahrzeugarten, §L/M Länder).
+
+**Potwierdzone cases:**
+- `exclusion_07`: §N.1 Saisonkennzeichen (section 77) przegrywa z §A.2 + §L.1
+- `exclusion_16`: §G.1 Schutzbrief (section 117, 3 zdania) przegrywa z §L.1 + §M.1
+
+**Przyczyna:** BGE-M3 embeddingi faworyzują sekcje z dużą ilością tekstu zawierającego ogólne słowa ("Versicherungsschutz gilt", "Fahrzeug") nad krótkimi ale precyzyjnymi sekcjami produktowymi. Negacja w pytaniu ("nicht in Deutschland zugelassen") też słabo matchuje do pozytywnego sformułowania w sekcji ("nur für in Deutschland zugelassene Fahrzeuge").
+
+**Potencjalne fixy (od prostego do złożonego):**
+1. Zwiększyć `top_k` z 5 → 10-20 + re-ranker cross-encoder przed generacją
+2. Hybrid search: BM25 (exact keyword) + embeddingi → fuzzy fusion score
+3. Osobne query routing dla pytań o specyficzne produkty/klauzule (RareTagMatcher improvement)
+
+**Priorytet:** średni — dotyczy retrieval miss, nie halucynacji.  
+**Powiązane cases w analiza.md:** exclusion_07, exclusion_16
+
+---
+
+## Problem 6 — Sekcje indeksu alfabetycznego mają is_retrieval_unit=True
+
+**Objaw:** Sekcje z alfabetycznym spisem treści (np. "## F\nFahrerlaubnis (H.4) 21 fehlende Fahrerlaubnis (G.4) 18...") trafiają do retrieval i outranking merytorycznych sekcji dla pytań zawierających te słowa.
+
+**Potwierdzone sekcje:** 165, 166, 167, 168 (Kfz Standard indeks §F–§K), prawdopodobnie analogiczne dla Spezial i innych Sparten.
+
+**Przyczyna:** `build_parquets.py` ustawia `is_retrieval_unit=True` dla tych sekcji — prawdopodobnie nie ma reguły wykluczającej strony indeksu. Sekcje nie mają treści merytorycznej, tylko odwołania do numerów stron.
+
+**Fix:** W `build_parquets.py` dodać regułę: jeśli heading to pojedyncza litera (A–Z) i markdown to czyste odwołania do stron → `is_retrieval_unit=False`. Alternatywnie: filtrować po wzorcu `r"^## [A-Z]\n"` + sprawdzenie czy markdown zawiera wyłącznie wzorzec `\w+ \(\w+\.\d+\) \d+`.
+
+**Priorytet:** niski — szum nie powoduje halucynacji, tylko pogarsza ranking.
+
+---
+
 ## Problem 4 — Shadow ContextSelector w providerze jest O(n) per query
 
 **Plik:** `src/promptfoo_provider.py` funkcja `call_api()`

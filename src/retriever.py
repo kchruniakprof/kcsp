@@ -5,6 +5,9 @@ D5 changes:
   - DocFilter replaces inline sparte/tarif filter
   - ContextPruner produces dual-view: markdown (verbatim) + pruned_markdown
   - RetrievalResult gains pruned_markdown field
+G5 changes:
+  - CrossEncoderReranker with lazy model loading
+  - Retriever accepts optional reranker + pool_k parameter
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from typing import Any, Optional
 import numpy as np
 
 from src.context_pruner import ContextPruner
+from src.model_registry import REGISTRY
 from src.observability import get_logger
 
 _log = get_logger("retriever")
@@ -36,6 +40,27 @@ class RetrievalResult:
     topic_tags: list[str]
 
 
+class CrossEncoderReranker:
+    """Cross-encoder reranker with lazy model loading.
+
+    The model is NOT loaded at __init__ or at import time.
+    It is loaded on the first call to rerank().
+    """
+
+    def __init__(self, model_name: str = REGISTRY["reranker"]) -> None:
+        self._model_name = model_name
+        self._model = None  # lazy
+
+    def rerank(self, query: str, results: list[RetrievalResult]) -> list[RetrievalResult]:
+        if self._model is None:
+            from sentence_transformers import CrossEncoder
+            self._model = CrossEncoder(self._model_name)
+        pairs = [(query, r.heading + " " + r.markdown[:512]) for r in results]
+        scores = self._model.predict(pairs)
+        ranked = sorted(zip(scores, results), key=lambda x: x[0], reverse=True)
+        return [r for _, r in ranked]
+
+
 class Retriever:
     def __init__(
         self,
@@ -43,11 +68,13 @@ class Retriever:
         embedder: Any,
         sec_embs: Optional[np.ndarray] = None,
         pruner: Optional[ContextPruner] = None,
+        reranker: Optional[CrossEncoderReranker] = None,
     ) -> None:
         # Only retrieval units enter the index
         self._sections = [s for s in sections if s.get("is_retrieval_unit", True)]
         self._embedder = embedder
         self._pruner = pruner or ContextPruner()
+        self._reranker = reranker
 
         if sec_embs is not None:
             self._sec_embs = np.array(sec_embs, dtype=np.float32)
@@ -87,6 +114,7 @@ class Retriever:
         section_types: Optional[list[str]] = None,
         doc_filter: Optional[Any] = None,
         query_obj: Optional[Any] = None,
+        pool_k: int = 20,
     ) -> list[RetrievalResult]:
         return self.retrieve_multi(
             queries=[query],
@@ -94,6 +122,7 @@ class Retriever:
             section_types=section_types,
             doc_filter=doc_filter,
             query_obj=query_obj,
+            pool_k=pool_k,
         )
 
     def retrieve_multi(
@@ -103,6 +132,7 @@ class Retriever:
         section_types: Optional[list[str]] = None,
         doc_filter: Optional[Any] = None,
         query_obj: Optional[Any] = None,
+        pool_k: int = 20,
     ) -> list[RetrievalResult]:
         """Retrieve using multiple queries (normalized_query + paraphrases).
 
@@ -166,17 +196,27 @@ class Retriever:
         scores_matrix = cand_embs @ q_vecs.T
         best_scores = scores_matrix.max(axis=1)
 
-        # ── Step 4: top_k ─────────────────────────────────────────────────────
-        if len(best_scores) <= top_k:
+        # ── Step 4: top_k / pool_k ───────────────────────────────────────────
+        # When reranker is active and pool_k > top_k, fetch pool_k candidates
+        # for the bi-encoder pass so the cross-encoder can rerank a wider pool.
+        fetch_k = pool_k if (self._reranker is not None and pool_k > top_k) else top_k
+
+        if len(best_scores) <= fetch_k:
             top_idx = np.argsort(best_scores)[::-1]
         else:
-            top_idx = np.argpartition(best_scores, -top_k)[-top_k:]
+            top_idx = np.argpartition(best_scores, -fetch_k)[-fetch_k:]
             top_idx = top_idx[np.argsort(best_scores[top_idx])[::-1]]
 
-        results = [
+        candidates = [
             self._build_result(float(best_scores[ci]), positions[ci])
             for ci in top_idx
         ]
+
+        # ── Step 5: optional cross-encoder reranking ──────────────────────────
+        if self._reranker is not None and pool_k > top_k:
+            results = self._reranker.rerank(queries[0], candidates)[:top_k]
+        else:
+            results = candidates[:top_k]
 
         _log.info("step_done", step="retriever", results_count=len(results),
                   top_scores=[round(r.score, 4) for r in results],

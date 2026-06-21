@@ -3,7 +3,8 @@ import pytest
 from unittest.mock import MagicMock
 import numpy as np
 
-from src.retriever import Retriever, RetrievalResult
+from src.retriever import Retriever, RetrievalResult, CrossEncoderReranker
+from src.model_registry import REGISTRY
 
 
 # ── RetrievalResult ───────────────────────────────────────────────────────────
@@ -259,3 +260,102 @@ def test_cross_branch_no_sparte_returns_all(retriever):
     _FQ = type("FQ", (), {"sparte_hint": None, "domain_terms": []})()
     results = retriever.retrieve("Vergleich Glas Hausrat", top_k=10, doc_filter=cap, query_obj=_FQ)
     assert len(results) == 6  # all retrieval units (no filter)
+
+
+# ── G5: CrossEncoderReranker ──────────────────────────────────────────────────
+
+# Cycle 1 — model_registry has "reranker" key
+def test_registry_has_reranker_key():
+    assert "reranker" in REGISTRY
+    assert REGISTRY["reranker"]  # non-empty string
+
+
+# Helper: build minimal RetrievalResult for reranker tests
+def _make_result(section_id: int) -> RetrievalResult:
+    return RetrievalResult(
+        section_id=section_id,
+        doc_id=f"doc{section_id}",
+        sparte="Kfz",
+        tarif="Spezial",
+        heading=f"Heading {section_id}",
+        markdown=f"Markdown {section_id}",
+        pruned_markdown=f"Markdown {section_id}",
+        breadcrumb=f"Kfz > §{section_id}",
+        score=0.5,
+        section_types=["WHAT_IS_INSURED"],
+        topic_tags=[],
+    )
+
+
+# Cycle 2 — rerank sorts results by cross-encoder score descending
+def test_reranker_sorts_by_score():
+    reranker = CrossEncoderReranker()
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.9, 0.1, 0.5]
+    reranker._model = mock_model  # inject without lazy load
+    results = [_make_result(1), _make_result(2), _make_result(3)]
+    ranked = reranker.rerank("query", results)
+    assert [r.section_id for r in ranked] == [1, 3, 2]
+
+
+# Cycle 3 — lazy load: model NOT loaded at __init__
+def test_reranker_lazy_load(monkeypatch):
+    """CrossEncoderReranker() must not import or load the model at init time."""
+    loaded = []
+
+    class FakeCrossEncoder:
+        def __init__(self, name):
+            loaded.append(name)
+        def predict(self, pairs):
+            return [0.5] * len(pairs)
+
+    import sys
+    fake_st = MagicMock()
+    fake_st.CrossEncoder = FakeCrossEncoder
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_st)
+
+    reranker = CrossEncoderReranker()
+    assert loaded == [], "model must not be loaded at __init__"
+
+    results = [_make_result(1)]
+    reranker.rerank("q", results)
+    assert len(loaded) == 1, "model must be loaded on first rerank()"
+
+
+# Cycle 4 — Retriever with reranker=None (default) behaves identically (backward-compat)
+def test_retriever_without_reranker_backward_compat(mock_embedder):
+    """Retriever(reranker=None) must work exactly as before — no behavior change."""
+    r = Retriever(sections=_SECTIONS, embedder=mock_embedder)  # no reranker
+    results = r.retrieve("Was ist versichert?", top_k=3)
+    assert len(results) <= 3
+    assert all(isinstance(res, RetrievalResult) for res in results)
+
+
+# Cycle 5 — Retriever with reranker: pool_k=6, top_k=3 → reranker called with 6, returns 3
+def test_retriever_with_reranker_calls_rerank(mock_embedder):
+    mock_reranker = MagicMock()
+    # reranker.rerank returns exactly top_k results (first 3 of the 6 passed)
+    mock_reranker.rerank.side_effect = lambda q, results: results[:3]
+
+    r = Retriever(sections=_SECTIONS, embedder=mock_embedder, reranker=mock_reranker)
+    results = r.retrieve("Was ist versichert?", top_k=3, pool_k=6)
+
+    assert mock_reranker.rerank.called
+    call_args = mock_reranker.rerank.call_args
+    candidates_passed = call_args[0][1]  # positional arg: results list
+    assert len(candidates_passed) == 6
+    assert len(results) == 3
+
+
+# Cycle 6 — pool_k <= top_k: reranker is NOT called
+def test_retriever_reranker_not_called_when_pool_k_lte_top_k(mock_embedder):
+    mock_reranker = MagicMock()
+    r = Retriever(sections=_SECTIONS, embedder=mock_embedder, reranker=mock_reranker)
+
+    # pool_k == top_k → no point reranking
+    r.retrieve("test", top_k=3, pool_k=3)
+    assert not mock_reranker.rerank.called
+
+    # pool_k < top_k → also no reranking
+    r.retrieve("test", top_k=5, pool_k=3)
+    assert not mock_reranker.rerank.called

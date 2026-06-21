@@ -128,12 +128,17 @@ def test_l1_parents_are_not_retrieval_units(parquets):
 
 
 def test_l1_leaves_are_retrieval_units(parquets):
+    from src.build_parquets import is_index_section
     secs = pd.read_parquet(parquets / "sections.parquet")
     subs = pd.read_parquet(parquets / "subsections.parquet")
     parent_ids = set(subs["parent_section_id"].dropna().astype(int))
     l1_leaves = secs[~secs["section_id"].isin(parent_ids)]
-    assert len(l1_leaves) > 0, "Test setup: expected some L1 leaves"
-    assert l1_leaves["is_retrieval_unit"].all(), "L1 leaves must have is_retrieval_unit=True"
+    # Index sections are intentionally excluded — only non-index leaves must be True
+    non_index_leaves = l1_leaves[
+        ~l1_leaves.apply(lambda r: is_index_section(r["heading"], r["markdown"]), axis=1)
+    ]
+    assert len(non_index_leaves) > 0, "Test setup: expected some non-index L1 leaves"
+    assert non_index_leaves["is_retrieval_unit"].all(), "Non-index L1 leaves must have is_retrieval_unit=True"
 
 
 def test_retrieval_unit_count_approx_370(parquets):
@@ -146,3 +151,65 @@ def test_retrieval_unit_count_approx_370(parquets):
 def test_sections_has_no_embedding_column(parquets):
     df = pd.read_parquet(parquets / "sections.parquet")
     assert "embedding" not in df.columns, "sections.parquet must not contain embedding after A1 refactor"
+
+
+# ── is_index_section ─────────────────────────────────────────────────────────
+
+from src.build_parquets import is_index_section
+
+
+def test_single_uppercase_letter_heading_is_index():
+    assert is_index_section("A", "") is True
+
+
+def test_single_uppercase_letter_z_is_index():
+    assert is_index_section("Z", "") is True
+
+
+def test_two_letter_heading_is_not_index():
+    assert is_index_section("AB", "any text") is False
+
+
+def test_section_heading_with_prefix_is_not_index():
+    assert is_index_section("§A Deckungsumfang", "Die Versicherung deckt Schäden durch...") is False
+
+
+def test_lowercase_single_letter_is_not_index():
+    assert is_index_section("a", "") is False
+
+
+def test_body_all_page_refs_is_index():
+    body = "Unfallschäden (G.1) 14\nDiebstahl (K.3) 22\nGlasbruch (B.2) 8"
+    assert is_index_section("Allgemeine Bestimmungen", body) is True
+
+
+def test_body_exactly_half_page_refs_is_index():
+    body = "Unfallschäden (G.1) 14\nDiebstahl (K.3) 22\nnormale Zeile\nnoch eine"
+    # 2/4 = 50% → True
+    assert is_index_section("Normaler Titel", body) is True
+
+
+def test_body_below_half_page_refs_is_not_index():
+    body = "Unfallschäden (G.1) 14\nnormale Zeile\nnoch eine\nund noch"
+    # 1/4 = 25% → False
+    assert is_index_section("Normaler Titel", body) is False
+
+
+def test_body_empty_with_non_index_heading_is_not_index():
+    assert is_index_section("§B Haftpflicht", "") is False
+
+
+def test_index_sections_not_retrieval_units(parquets):
+    """Sections detected as alphabetical index must have is_retrieval_unit=False after build."""
+    from src.build_parquets import is_index_section
+    secs = pd.read_parquet(parquets / "sections.parquet")
+    index_mask = secs.apply(
+        lambda r: is_index_section(r["heading"], r["markdown"]), axis=1
+    )
+    index_secs = secs[index_mask]
+    if len(index_secs) == 0:
+        pytest.skip("No index sections found in corpus — nothing to assert")
+    assert not index_secs["is_retrieval_unit"].any(), (
+        f"Index sections must have is_retrieval_unit=False, "
+        f"found True for section_ids: {index_secs[index_secs['is_retrieval_unit']]['section_id'].tolist()}"
+    )
