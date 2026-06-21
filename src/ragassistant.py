@@ -143,7 +143,7 @@ class RAGAssistant:
 
             def _generate_fn() -> str:
                 return self._generator.generate(
-                    expanded.normalized_query, generator_sections, mode=mode
+                    expanded.normalized_query, sections, mode=mode
                 ).answer
 
             critic_result = run_critic(
