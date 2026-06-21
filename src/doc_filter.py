@@ -65,7 +65,8 @@ def resolve_doc_set(
         )
         result = result | hausrat_ids
 
-    return result
+    # B1: empty result → no-filter fallback (None), never frozenset() → prevents abstain
+    return result if result else None
 
 
 GENERIC_BLOCKLIST: frozenset[str] = frozenset({

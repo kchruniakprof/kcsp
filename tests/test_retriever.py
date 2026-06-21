@@ -200,8 +200,9 @@ def test_no_doc_filter_returns_all_units(retriever):
 # ── Section type filter ───────────────────────────────────────────────────────
 
 def test_section_type_filter(retriever):
+    # A1: top_k=3 (exactly 3 EXCLUSIONS sections exist) — boosted chunks rank first
     results = retriever.retrieve(
-        "Was ist ausgeschlossen?", top_k=4,
+        "Was ist ausgeschlossen?", top_k=3,
         section_types=["EXCLUSIONS"]
     )
     for r in results:
@@ -209,8 +210,9 @@ def test_section_type_filter(retriever):
 
 
 def test_section_type_filter_coverage(retriever):
+    # A1: top_k=3 (exactly 3 WHAT_IS_INSURED sections exist) — boosted chunks rank first
     results = retriever.retrieve(
-        "Was ist versichert?", top_k=4,
+        "Was ist versichert?", top_k=3,
         section_types=["WHAT_IS_INSURED"]
     )
     for r in results:
@@ -359,3 +361,102 @@ def test_retriever_reranker_not_called_when_pool_k_lte_top_k(mock_embedder):
     # pool_k < top_k → also no reranking
     r.retrieve("test", top_k=5, pool_k=3)
     assert not mock_reranker.rerank.called
+
+
+# ── A1: soft section_type boost (no hard-drop) ───────────────────────────────
+
+def test_a1_dense_top_chunk_not_dropped_despite_wrong_type():
+    """A1: chunk with SPECIAL_PROVISIONS is NOT dropped when section_types=['WHAT_IS_INSURED'].
+
+    Uses 4 sections: 1 SPECIAL_PROVISIONS (dense #1) + 3 WHAT_IS_INSURED.
+    With old hard-drop: typed=[102,103,104] len=3 >= _MIN_SECTION_CHUNKS → 101 dropped.
+    With soft-boost: 101 stays in pool, gets no boost, still ranked by dense score → appears.
+    """
+    import numpy as np
+
+    sections_a1 = [
+        {
+            "section_id": 101, "doc_id": "docA", "sparte": "Kfz", "tarif": "X",
+            "heading": "Sonderbedingungen", "markdown": "Naturgefahren content.",
+            "breadcrumb": "A", "section_types": ["SPECIAL_PROVISIONS"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+        {
+            "section_id": 102, "doc_id": "docA", "sparte": "Kfz", "tarif": "X",
+            "heading": "Was versichert A", "markdown": "Deckung A.",
+            "breadcrumb": "B", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+        {
+            "section_id": 103, "doc_id": "docA", "sparte": "Kfz", "tarif": "X",
+            "heading": "Was versichert B", "markdown": "Deckung B.",
+            "breadcrumb": "C", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+        {
+            "section_id": 104, "doc_id": "docA", "sparte": "Kfz", "tarif": "X",
+            "heading": "Was versichert C", "markdown": "Deckung C.",
+            "breadcrumb": "D", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+    ]
+    # Embedder: section 101 scores 1.0 (dense #1), rest score 0.3
+    emb = MagicMock()
+    def encode(texts, **kwargs):
+        texts = [texts] if isinstance(texts, str) else list(texts)
+        result = []
+        for t in texts:
+            if "Sonderbedingungen" in t or "Naturgefahren" in t:
+                result.append([1.0, 0.0])
+            else:
+                result.append([0.3, 0.0])
+        return np.array(result, dtype=np.float32)
+    emb.encode.side_effect = encode
+
+    r = Retriever(sections=sections_a1, embedder=emb)
+    # top_k=4: with hard-drop, only 102/103/104 returned; with soft-boost, 101 also included
+    results = r.retrieve("Naturgefahren versichert?", top_k=4, section_types=["WHAT_IS_INSURED"])
+    ids = [res.section_id for res in results]
+    assert 101 in ids, "Dense #1 (SPECIAL_PROVISIONS) must NOT be hard-dropped — soft boost only"
+
+
+def test_a1_soft_boost_applied_once_not_stacked():
+    """A1: chunk matching 2 types gets boost exactly once (+0.04, not +0.08)."""
+    import numpy as np
+
+    sections_boost = [
+        {
+            "section_id": 201, "doc_id": "doc", "sparte": "Kfz", "tarif": "X",
+            "heading": "Multi", "markdown": "Content.",
+            "breadcrumb": "a", "section_types": ["WHAT_IS_INSURED", "COVERAGE_AMOUNT"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+    ]
+    emb = MagicMock()
+    emb.encode.return_value = np.array([[1.0, 0.0]], dtype=np.float32)
+
+    r = Retriever(sections=sections_boost, embedder=emb)
+    results = r.retrieve("test", top_k=1, section_types=["WHAT_IS_INSURED", "COVERAGE_AMOUNT"])
+    assert len(results) == 1
+    assert abs(results[0].score - 1.04) < 0.001, f"Expected ~1.04 (1.0 + 0.04), got {results[0].score}"
+
+
+def test_a1_no_section_types_no_boost():
+    """A1: without section_types, scores are raw cosine (no boost applied)."""
+    import numpy as np
+
+    sections_single = [
+        {
+            "section_id": 301, "doc_id": "doc", "sparte": "Kfz", "tarif": "X",
+            "heading": "Test", "markdown": "Content.",
+            "breadcrumb": "a", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+    ]
+    emb = MagicMock()
+    emb.encode.return_value = np.array([[1.0, 0.0]], dtype=np.float32)
+
+    r = Retriever(sections=sections_single, embedder=emb)
+    results = r.retrieve("test", top_k=1)  # no section_types
+    assert len(results) == 1
+    assert abs(results[0].score - 1.0) < 0.001, f"No boost expected, got {results[0].score}"

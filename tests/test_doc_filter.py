@@ -77,11 +77,11 @@ def test_product_detector_kfz_no_tarif(documents_df):
     assert len(result) >= 2
 
 
-def test_product_detector_unknown_tarif_returns_empty(documents_df):
+def test_product_detector_unknown_tarif_returns_none(documents_df):
     from src.doc_filter import ProductDetectorAdapter
     adapter = ProductDetectorAdapter(documents_df, sparte="Kfz", tarif="NonExistent")
     result = adapter.filter(_FakeQuery())
-    assert result == frozenset()
+    assert result is None  # B1: empty result → no-filter fallback, never frozenset()
 
 
 def test_product_detector_uses_query_sparte_hints(documents_df):
@@ -196,14 +196,14 @@ def test_composite_multi_sparte_via_gate(documents_df):
     assert "Hausrat" in sparten
 
 
-def test_composite_all_empty_returns_empty(documents_df):
+def test_composite_empty_gate_returns_none(documents_df):
     from src.doc_filter import CompositeDocFilter, ProductDetectorAdapter
 
     a1 = ProductDetectorAdapter(documents_df, sparte="Kfz", tarif="BadTarif")
     a2 = ProductDetectorAdapter(documents_df, sparte="Hausrat", tarif="BadTarif")
     cf = CompositeDocFilter([a1, a2])
     result = cf.filter(_FakeQuery())
-    assert result == frozenset()
+    assert result is None  # B1: gate empty → no-filter fallback (not frozenset())
 
 
 def test_composite_returns_frozenset(documents_df):
@@ -332,3 +332,33 @@ def test_gate_kept_when_rare_has_no_overlap(docs_df, sections_df, subsections_df
     if result is not None:
         matched = docs_df[docs_df["doc_id"].isin(result)]
         assert (matched["sparte"] == "Schmuck").all()
+
+
+# ── B1: tarif scoped to sparte + fallback no-filter ──────────────────────────
+
+def test_b1_resolve_doc_set_bad_tarif_returns_none(docs_df):
+    """B1: resolve_doc_set with tarif that matches no docs → None (no-filter fallback)."""
+    result = resolve_doc_set(["Kfz"], "NonExistentTarif", docs_df)
+    assert result is None, "Empty result must be None (no-filter), never frozenset()"
+
+
+def test_b1_resolve_doc_set_valid_tarif_returns_frozenset(docs_df):
+    """B1: resolve_doc_set with valid tarif → frozenset (unchanged)."""
+    result = resolve_doc_set(["Kfz"], "Spezial", docs_df)
+    assert isinstance(result, frozenset)
+    assert "kfz-spezial" in result
+
+
+def test_b1_detect_tarif_scoped_kfz_ignores_hausrat_tarifs(docs_df):
+    """B1: _detect_tarif with tarifs scoped to Kfz must not match Hausrat 'Best'."""
+    kfz_tarifs = docs_df[docs_df["sparte"] == "Kfz"]["tarif"].dropna().unique().tolist()
+    # 'Best' is NOT a Kfz tarif — must not be detected
+    result = _detect_tarif("Wechsel von Smart zu Best", kfz_tarifs)
+    assert result is None, f"'Best' is Hausrat tarif, must not match in Kfz scope, got: {result}"
+
+
+def test_b1_detect_tarif_scoped_kfz_matches_spezial(docs_df):
+    """B1: _detect_tarif scoped to Kfz correctly matches Kfz tarifs."""
+    kfz_tarifs = docs_df[docs_df["sparte"] == "Kfz"]["tarif"].dropna().unique().tolist()
+    result = _detect_tarif("Gilt das für Spezial Tarif?", kfz_tarifs)
+    assert result == "Spezial"

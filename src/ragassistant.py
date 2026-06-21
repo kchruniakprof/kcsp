@@ -99,7 +99,15 @@ class RAGAssistant:
         # Build DocFilter when parquet DataFrames available
         doc_filter = None
         if self._documents_df is not None and self._sections_df is not None and self._subsections_df is not None:
-            tarif_names = list(self._documents_df["tarif"].dropna().unique())
+            # B1: scope tarif detection to active sparte_hints to avoid cross-sparte collision
+            sparte_hints = list(expanded.sparte_hints or [])
+            if sparte_hints:
+                tarif_names = list(
+                    self._documents_df[self._documents_df["sparte"].isin(sparte_hints)]["tarif"]
+                    .dropna().unique()
+                )
+            else:
+                tarif_names = list(self._documents_df["tarif"].dropna().unique())
             detected_tarif = _detect_tarif(expanded.normalized_query, tarif_names)
             adapters = [
                 ProductDetectorAdapter(self._documents_df, tarif=detected_tarif),

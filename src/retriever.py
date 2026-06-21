@@ -22,7 +22,7 @@ from src.observability import get_logger
 
 _log = get_logger("retriever")
 
-_MIN_SECTION_CHUNKS = 3
+_SECTION_TYPE_BOOST = np.float32(0.04)
 
 
 @dataclass
@@ -175,15 +175,8 @@ class Retriever:
         else:
             positions = list(range(len(self._sections)))
 
-        # ── Step 2: section_type filter with fallback guard ───────────────────
-        typed: list[int] = []
-        if section_types:
-            typed = [
-                i for i in positions
-                if any(t in self._sections[i].get("section_types", []) for t in section_types)
-            ]
-            if len(typed) >= _MIN_SECTION_CHUNKS:
-                positions = typed
+        # ── Step 2: section_type soft boost (no hard-drop) ───────────────────
+        _section_types_set = set(section_types) if section_types else set()
 
         # ── Step 3: vectorized scoring ────────────────────────────────────────
         cand_embs = self._sec_embs[positions]
@@ -195,6 +188,12 @@ class Retriever:
 
         scores_matrix = cand_embs @ q_vecs.T
         best_scores = scores_matrix.max(axis=1)
+
+        # A1: additive +0.04 boost for chunks matching ≥1 requested type (once, not stacked)
+        if _section_types_set:
+            for ci, pos in enumerate(positions):
+                if set(self._sections[pos].get("section_types", [])) & _section_types_set:
+                    best_scores[ci] += _SECTION_TYPE_BOOST
 
         # ── Step 4: top_k / pool_k ───────────────────────────────────────────
         # When reranker is active and pool_k > top_k, fetch pool_k candidates
