@@ -17,6 +17,7 @@ from typing import Any, Optional
 import numpy as np
 
 from src.context_pruner import ContextPruner
+from src.doc_filter import GENERIC_BLOCKLIST
 from src.model_registry import REGISTRY
 from src.observability import get_logger
 
@@ -175,6 +176,19 @@ class Retriever:
         else:
             positions = list(range(len(self._sections)))
 
+        # ── D1: exact-term force include (within DocFilter gate) ─────────────
+        _forced_positions: set[int] = set()
+        if query_obj is not None:
+            _raw = list(getattr(query_obj, "domain_terms", None) or [])
+            _raw += list(getattr(query_obj, "topic_tags", None) or [])
+            _qterms = [t.lower().strip() for t in _raw
+                       if t.strip() and t not in GENERIC_BLOCKLIST]
+            if _qterms:
+                for _pos in positions:
+                    _md = self._sections[_pos].get("markdown", "").lower()
+                    if any(_t in _md for _t in _qterms):
+                        _forced_positions.add(_pos)
+
         # ── Step 2: section_type soft boost (no hard-drop) ───────────────────
         _section_types_set = set(section_types) if section_types else set()
 
@@ -211,6 +225,13 @@ class Retriever:
             self._build_result(float(best_scores[ci]), positions[ci])
             for ci in top_idx
         ]
+
+        # D1: append forced candidates not already in dense pool
+        if _forced_positions:
+            _in_pool = {positions[ci] for ci in top_idx}
+            for _ci, _pos in enumerate(positions):
+                if _pos in _forced_positions and _pos not in _in_pool:
+                    candidates.append(self._build_result(float(best_scores[_ci]), _pos))
 
         # ── Step 5: optional cross-encoder reranking ──────────────────────────
         if self._reranker is not None and pool_k_effective > top_k:

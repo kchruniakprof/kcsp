@@ -555,3 +555,164 @@ def test_a1_no_section_types_no_boost():
     results = r.retrieve("test", top_k=1)  # no section_types
     assert len(results) == 1
     assert abs(results[0].score - 1.0) < 0.001, f"No boost expected, got {results[0].score}"
+
+
+# ── D1: exact-term force include ──────────────────────────────────────────────
+
+def test_d1_forced_include_in_reranker_pool():
+    """D1: domain_term in markdown forces chunk into reranker pool even below pool_k threshold.
+
+    52 sections (>50 → pool_k_effective=30). Section 400 has score=0.0 (rank 52),
+    but domain_term='Naturgefahren' appears in its markdown → must be added to candidates.
+    """
+    import numpy as np
+
+    sections_d1 = [
+        {
+            "section_id": 400, "doc_id": "kfz", "sparte": "Kfz", "tarif": "X",
+            "heading": "Sonderbedingungen", "markdown": "Naturgefahren sind versichert.",
+            "breadcrumb": "A", "section_types": ["SPECIAL_PROVISIONS"],
+            "topic_tags": ["Naturgefahren"], "is_retrieval_unit": True,
+        },
+    ] + [
+        {
+            "section_id": 1000 + i, "doc_id": f"doc_{i}", "sparte": "Kfz", "tarif": "X",
+            "heading": f"Section {i}", "markdown": f"Content {i}.",
+            "breadcrumb": f"K > §{i}", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        }
+        for i in range(51)
+    ]
+
+    emb = MagicMock()
+    def encode_d1(texts, **kw):
+        texts = [texts] if isinstance(texts, str) else list(texts)
+        result = []
+        for t in texts:
+            # Section 400 heading contains "Sonderbedingungen" → mark with zero embedding
+            if "sonderbedingungen" in t.lower():
+                result.append([0.0, 0.0])
+            else:
+                result.append([1.0, 0.0])
+        return np.array(result, dtype=np.float32)
+    emb.encode.side_effect = encode_d1
+
+    mock_reranker = MagicMock()
+    captured = []
+    def capture(q, results):
+        captured.extend(results)
+        return results[:5]
+    mock_reranker.rerank.side_effect = capture
+
+    r = Retriever(sections=sections_d1, embedder=emb, reranker=mock_reranker)
+
+    # Query does NOT contain "Naturgefahren" text but domain_terms does
+    _FQ = type("FQ", (), {
+        "domain_terms": ["Naturgefahren"],
+        "sparte_hints": ["Kfz"],
+        "normalized_query": "Was ist durch Sturm abgedeckt?",
+    })()
+
+    r.retrieve("Was ist durch Sturm abgedeckt?", top_k=5, query_obj=_FQ)
+
+    assert mock_reranker.rerank.called
+    pool_ids = [res.section_id for res in captured]
+    assert 400 in pool_ids, (
+        f"Section 400 (Naturgefahren) must be forced into reranker pool despite score=0, "
+        f"pool was: {pool_ids[:10]}..."
+    )
+
+
+def test_d1_generic_blocklist_not_forced():
+    """D1: term in GENERIC_BLOCKLIST must NOT trigger force-include."""
+    import numpy as np
+
+    sections_bl = [
+        {
+            "section_id": 500, "doc_id": "doc", "sparte": "Kfz", "tarif": "X",
+            "heading": "Versicherung",
+            "markdown": "Versicherung und Versicherungsnehmer und Schaden.",
+            "breadcrumb": "A", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+    ] + [
+        {
+            "section_id": 600 + i, "doc_id": f"d{i}", "sparte": "Kfz", "tarif": "X",
+            "heading": f"S{i}", "markdown": f"Neutral content {i}.",
+            "breadcrumb": f"B{i}", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        }
+        for i in range(51)  # total 52 → pool_k_effective=30
+    ]
+
+    emb = MagicMock()
+    emb.encode.side_effect = lambda texts, **kw: np.array(
+        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1)
+    )
+
+    mock_reranker = MagicMock()
+    captured = []
+    def capture(q, results):
+        captured.extend(results)
+        return results[:5]
+    mock_reranker.rerank.side_effect = capture
+
+    r = Retriever(sections=sections_bl, embedder=emb, reranker=mock_reranker)
+
+    _FQ = type("FQ", (), {
+        "domain_terms": ["Versicherung", "Schaden"],  # both in GENERIC_BLOCKLIST
+        "sparte_hints": [],
+        "normalized_query": "Versicherung",
+    })()
+    r.retrieve("Versicherung", top_k=5, query_obj=_FQ)
+
+    # Pool = top-30 (52 sections, pool_k=30). Section 500 has same score as others.
+    # Blocklist terms must not add section 500 as a FORCED include beyond normal pool_k.
+    # If 500 is in pool, it's only because it was in the top-30 by dense score, not forced.
+    assert mock_reranker.rerank.called
+    # The key check: no extra candidates beyond pool_k=30 (forced would add >30)
+    assert len(captured) == 30, (
+        f"Blocklist terms must not force-include beyond pool_k=30, got {len(captured)}"
+    )
+
+
+def test_d1_forced_not_bypass_doc_filter():
+    """D1: forced-include only within DocFilter gate — Hausrat section not in results for Kfz query."""
+    import numpy as np
+
+    sections_gate = [
+        {
+            "section_id": 700, "doc_id": "kfz", "sparte": "Kfz", "tarif": "X",
+            "heading": "Naturgefahren Kfz", "markdown": "Naturgefahren für Kfz versichert.",
+            "breadcrumb": "A", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": ["Naturgefahren"], "is_retrieval_unit": True,
+        },
+        {
+            "section_id": 701, "doc_id": "hausrat", "sparte": "Hausrat", "tarif": "Y",
+            "heading": "Naturgefahren Hausrat", "markdown": "Naturgefahren im Haushalt.",
+            "breadcrumb": "B", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": ["Naturgefahren"], "is_retrieval_unit": True,
+        },
+    ]
+
+    emb = MagicMock()
+    emb.encode.side_effect = lambda texts, **kw: np.array(
+        [[1.0, 0.0]] * (len(texts) if not isinstance(texts, str) else 1)
+    )
+
+    r = Retriever(sections=sections_gate, embedder=emb)  # no reranker
+
+    kfz_filter = _AllowedDocFilter({"kfz"})  # DocFilter: Kfz only
+    _FQ = type("FQ", (), {
+        "domain_terms": ["Naturgefahren"],
+        "sparte_hints": ["Kfz"],
+        "normalized_query": "Naturgefahren Kfz",
+    })()
+
+    results = r.retrieve("Naturgefahren Kfz", top_k=5, doc_filter=kfz_filter, query_obj=_FQ)
+
+    result_ids = [res.section_id for res in results]
+    assert 701 not in result_ids, (
+        f"Hausrat section 701 must NOT be forced in — it's outside DocFilter gate. Results: {result_ids}"
+    )
+    assert 700 in result_ids, "Kfz Naturgefahren section 700 must be in results"
