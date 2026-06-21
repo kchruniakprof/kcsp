@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from src.critic import Critic, CriticVerdict, run_critic
-from src.doc_filter import CompositeDocFilter, ProductDetectorAdapter, RareTagMatcherAdapter
+from src.doc_filter import CompositeDocFilter, ProductDetectorAdapter, RareTagMatcherAdapter, _detect_tarif
 from src.generator import AnswerMode, Generator
 from src.observability import get_logger
 from src.query_expansion import Intent, QueryExpansion
@@ -98,11 +98,10 @@ class RAGAssistant:
         # Build DocFilter when parquet DataFrames available
         doc_filter = None
         if self._documents_df is not None and self._sections_df is not None and self._subsections_df is not None:
+            tarif_names = list(self._documents_df["tarif"].dropna().unique())
+            detected_tarif = _detect_tarif(expanded.normalized_query, tarif_names)
             adapters = [
-                ProductDetectorAdapter(
-                    self._documents_df,
-                    sparte=expanded.sparte_hint,
-                ),
+                ProductDetectorAdapter(self._documents_df, tarif=detected_tarif),
                 RareTagMatcherAdapter(self._sections_df, self._subsections_df),
             ]
             doc_filter = CompositeDocFilter(adapters)
@@ -118,7 +117,7 @@ class RAGAssistant:
         if not results:
             _log.info("pipeline_abstain", reason="empty_retrieval",
                       normalized_query=expanded.normalized_query,
-                      sparte_hint=expanded.sparte_hint)
+                      sparte_hint=expanded.primary_sparte)
             return FinalAnswer(
                 answer=_ABSTAIN_ANSWER, sources=[], breadcrumbs=[],
                 intent=expanded.intent, abstained=True,
@@ -142,7 +141,7 @@ class RAGAssistant:
                 {
                     "section_id": r.section_id,
                     "heading": r.heading,
-                    "markdown": r.pruned_markdown,
+                    "markdown": r.markdown,
                     "breadcrumb": r.breadcrumb,
                 }
                 for r in results
@@ -185,8 +184,8 @@ class RAGAssistant:
             if critic_result is not None and critic_result.answer is not None
             else generated.answer
         )
-        if self._enable_cross_sell and expanded.sparte_hint:
-            hints = _CROSS_SELL_MAP.get(expanded.sparte_hint, [])
+        if self._enable_cross_sell and expanded.primary_sparte:
+            hints = _CROSS_SELL_MAP.get(expanded.primary_sparte, [])
             cross_sell = hints if hints else None
             if cross_sell:
                 hint_str = ", ".join(cross_sell)

@@ -347,3 +347,25 @@ def test_run_critic_ensemble_exception_graceful_pass():
     )
     assert result.verdict == CriticVerdict.PASS
     assert result.used_ensemble is False
+
+
+# ---------------------------------------------------------------------------
+# E1: anti-over-abstain prompt rules
+# ---------------------------------------------------------------------------
+
+def test_critic_system_prompt_has_exclusion_query_rule():
+    """_SYSTEM_PROMPT must include explicit EXCLUSION_QUERY guidance."""
+    from src.critic import _SYSTEM_PROMPT
+    assert "EXCLUSION_QUERY" in _SYSTEM_PROMPT
+
+
+def test_critic_system_prompt_hedge_examples_in_pass_rule():
+    """_SYSTEM_PROMPT must list 'nicht in den vorliegenden Abschnitten' as PASS-worthy hedge."""
+    from src.critic import _SYSTEM_PROMPT
+    assert "nicht in den vorliegenden" in _SYSTEM_PROMPT
+
+
+def test_critic_system_prompt_allgemeine_ausschluesse_pass():
+    """Allgemeine Ausschlüsse (Kriegsereignisse, Kernenergie) mentioned as non-hallucination."""
+    from src.critic import _SYSTEM_PROMPT
+    assert "Kriegsereignisse" in _SYSTEM_PROMPT or "allgemeine Ausschl" in _SYSTEM_PROMPT.lower()

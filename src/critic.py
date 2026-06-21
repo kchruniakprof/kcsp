@@ -78,11 +78,21 @@ BEWERTUNGSREGELN:
   die vollständig im Kontext fehlen — ODER Kontext ist völlig irrelevant zur Frage.
 
 WICHTIG — DEFAULT TO PASS:
-- Hedging-Phrasen ("nicht explizit erwähnt", "Quellen geben nicht an", "nicht separat aufgeführt",
-  "kann nicht direkt verglichen werden") sind KEINE Halluzination → PASS.
+- Hedging-Phrasen sind KEINE Halluzination → PASS. Beispiele für Hedging:
+  "nicht explizit erwähnt", "Quellen geben nicht an", "nicht separat aufgeführt",
+  "nicht in den vorliegenden Abschnitten", "nicht direkt beschrieben",
+  "kann nicht direkt verglichen werden", "laut den vorliegenden Bedingungen nicht aufgeführt".
 - Unvollständige Antworten (nur Teil der Frage beantwortet) → PASS, nicht ABSTAIN.
-- ABSTAIN NUR bei erfundenen Beträgen, Daten oder named conditions, die im Kontext fehlen.
+- ABSTAIN NUR bei erfundenen konkreten Beträgen (€), Daten oder named conditions,
+  die im Kontext explizit fehlen oder widerlegt werden.
 - REGEN NUR bei konkretem, korrigierbarem Sachfehler — NICHT für Stil, Länge oder Hedging.
+
+EXCLUSION_QUERY Sonderregel:
+- Wenn der Kontext Abschnitte enthält wie "Nicht versichert", "Ausschlüsse",
+  "wogegen ist ... nicht versichert" — UND die Antwort diese Ausschlüsse korrekt zitiert → PASS.
+- Allgemeine Ausschlüsse (z.B. Kriegsereignisse, Kernenergie, Vorsatz des VN) gelten für alle
+  Tarife einer Sparte. Deren Nennung in der Antwort auf Basis des Kontexts ist KEIN Halluzinieren → PASS.
+- Tarif-spezifische Frage + allgemeine Ausschlüsse im Kontext → PASS (nicht ABSTAIN).
 
 Antworte ausschließlich im geforderten strukturierten Format.
 """

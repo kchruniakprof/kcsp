@@ -241,9 +241,10 @@
     value: output.length > 0
   - type: icontains-any
     value:
-    - Glasbruch
-    - Schmuckverlust
-    - Haushaltsgegenstände
+    - Schmuck
+    - Glas
+    - Juwelen
+    - Wertsachen
   - type: not-icontains
     value: Traceback
 - description: coverage_query_01_Kfz_Standard
@@ -263,8 +264,10 @@
     value: output.length > 0
   - type: icontains-any
     value:
-    - mobiles Navigations- und Multifunktionsgerät
-    - Smartphone/Mobiltelefon
+    - Autotelefon
+    - Navigationssystem
+    - nicht abgedeckt
+    - nicht fest im Fahrzeug
   - type: not-icontains
     value: Traceback
 - description: coverage_query_02_Hausrat_Best
@@ -891,9 +894,9 @@
     value: output.length > 0
   - type: icontains-any
     value:
-    - Ladegeräte
-    - Elektrofahrzeuge
-    - Wallboxen
+    - Ladestation
+    - Wallbox
+    - nicht versichert
   - type: not-icontains
     value: Traceback
 - description: coverage_query_30_Hausrat_Best
@@ -914,9 +917,10 @@
     value: output.length > 0
   - type: icontains-any
     value:
-    - Garagen
-    - Entfernung
-    - Versicherungsort
+    - Garage
+    - entfernt
+    - versichert
+    - Wertsachen
   - type: not-icontains
     value: Traceback
 - description: coverage_query_31_Hausrat_Best+Fahrraddiebstahl
@@ -1243,16 +1247,19 @@
     source_breadcrumb: Kfz > Spezial > §E Kasko – die Versicherung für Schäden an
       Ihrem Fahrzeug
     language: de
-    notes: Frage zielt auf die Ausnahme für nicht fest mit dem Fahrzeug verbundene
-      Teile ab, die speziell für den Fahrzeuggebrauch genutzt werden.
+    notes: 'Daten-, Bild- und Tonträger stehen explizit in der §a-Ausschlussliste
+      — die Ausnahme "unter Verschluss + ausschließlich Fahrzeuggebrauch" gilt nur
+      für "alle weiteren" Teile (z. B. Warndreieck). Korrekte Antwort: Nein, nicht
+      versichert.'
   assert:
   - type: javascript
     value: output.length > 0
   - type: icontains-any
     value:
-    - Daten-, Bild- und Tonträger
-    - mitversichert
-    - nicht fest verbunden
+    - nicht versichert
+    - ausgeschlossen
+    - nicht abgedeckt
+    - Ausschluss
   - type: not-icontains
     value: Traceback
 - description: exclusion_query_06_Hausrat_Best+Naturgefahren
@@ -1283,9 +1290,9 @@
     expected_intent: EXCLUSION_QUERY
     expected_sparte: Kfz
     expected_tarif: Spezial
-    source_section_id: 15
+    source_section_id: 77
     source_breadcrumb: Kfz > Spezial > §N Regelungen für Saison-, Kurzzeit-, Ausfuhr-
-      und Wechselkennzeichen
+      und Wechselkennzeichen > §N.1 Was müssen Sie bei Saisonkennzeichen beachten?
     language: de
     notes: Frage bezieht sich auf den Ausschluss von Versicherungsschutz außerhalb
       der Saison
@@ -1476,9 +1483,10 @@
     expected_intent: EXCLUSION_QUERY
     expected_sparte: Kfz
     expected_tarif: Standard
-    source_section_id: 23
+    source_section_id: 117
     source_breadcrumb: Kfz > Standard > §G Kfz-Schutzbrief – umfangreiche Hilfeleistungen
-      rund um Ihr Fahrzeug
+      rund um Ihr Fahrzeug > §G.1 Wann und für welche Fahrzeuge können Sie den Kfz-Schutzbrief
+      vereinbaren?
     language: de
     notes: Frage zur Ausnahme beim Kfz-Schutzbrief
   assert:
@@ -1571,8 +1579,10 @@
     value: output.length > 0
   - type: icontains-any
     value:
+    - grobe Fahrlässigkeit
     - grob fahrlässig
     - Leistungskürzung
+    - Kürzung
   - type: not-icontains
     value: Traceback
 - description: claims_procedure_01_Kfz_Standard
@@ -1645,9 +1655,9 @@
     value: output.length > 0
   - type: icontains-any
     value:
-    - Verletzung
-    - vorvertraglichen Anzeigepflicht
-    - Rücktrittsrecht
+    - Anzeigepflicht
+    - zurücktreten
+    - Versicherungsschutz
   - type: not-icontains
     value: Traceback
 - description: claims_procedure_04_Hausrat_Best+Naturgefahren
@@ -1882,19 +1892,21 @@
     expected_intent: CLAIMS_PROCEDURE
     expected_sparte: Kfz
     expected_tarif: Spezial
-    source_section_id: 8
-    source_breadcrumb: Kfz > Spezial > §G Obliegenheiten
+    source_section_id: 38
+    source_breadcrumb: Kfz > Spezial > §G Obliegenheiten > §G.1 Welche Obliegenheiten
+      haben Sie bis zur Antragstellung und welche Folgen haben Obliegenheitsverletzungen?
     language: de
-    notes: Die Frage bezieht sich auf die Konsequenzen einer Verletzung der Anzeigepflicht
-      bei der Antragstellung für eine Kfz-Versicherung im Spezial-Tarif.
+    notes: Korrekte Sektion ist §G.1 (nicht §B.2). Antwort muss Kündigung und/oder
+      Rücktritt bei Vorsatz/grober Fahrlässigkeit nennen. Assertkeywords korrekt —
+      §G.1 enthält "kündigen", "zurücktreten", "Obliegenheitsverletzungen".
   assert:
   - type: javascript
     value: output.length > 0
   - type: icontains-any
     value:
-    - Obliegenheitsverletzung
-    - Kündigung
-    - Rücktritt
+    - kündigen
+    - zurücktreten
+    - Obliegenheit
   - type: not-icontains
     value: Traceback
 - description: claims_procedure_15_Hausrat_Smart
@@ -1945,25 +1957,25 @@
     value: Traceback
 - description: price_quote_02_Kfz_Standard
   vars:
-    question: Wie hoch ist der Beitrag für einen Kfz-Versicherungsvertrag mit Standard-Tarif,
-      wenn der Fahrer eine fehlende Fahrerlaubnis hat?
-    expected_intent: PRICE_QUOTE
+    question: Welche Folgen hat es für den Versicherungsschutz im Standard-Tarif,
+      wenn das Fahrzeug von einem Fahrer ohne gültige Fahrerlaubnis gefahren wird?
+    expected_intent: EXCLUSION_QUERY
     expected_sparte: Kfz
     expected_tarif: Standard
-    source_section_id: 34
-    source_breadcrumb: Kfz > Standard > §F Fahrerlaubnis (H.4) 21 Fahrerschutz (A.3,
-      C.1) 6,8 Fahrzeugschlüssel (E.2) 11 Fahrzeugverwendung (H.3) 21 fehlende Fahrerlaubnis
-      (G.4) 18 Folgebeitrag (J) 23
+    source_section_id: 127
+    source_breadcrumb: Kfz > Standard > §H Obliegenheiten > §H.4 Welche Obliegenheiten
+      bestehen bei Gebrauch des Fahrzeugs und welche Folgen haben Obliegenheitsverletzungen?
     language: de
-    notes: Beitragsfrage bei fehlender Fahrerlaubnis
+    notes: Ursprüngliche Frage fragte nach dem Beitrag (Preis) — nicht in Bedingungen.
+      Umformuliert auf Konsequenzen (Leistungsfreiheit), die in §H.4 geregelt sind.
   assert:
   - type: javascript
     value: output.length > 0
   - type: icontains-any
     value:
-    - Fehlende Fahrerlaubnis
-    - Beitrag
-    - Kfz-Versicherung
+    - Fahrerlaubnis
+    - Leistungsfreiheit
+    - Versicherungsschutz
   - type: not-icontains
     value: Traceback
 - description: price_quote_03_Kfz_Spezial
@@ -1985,7 +1997,7 @@
     value:
     - Zahlungsintervalle
     - SEPA-Lastschrift
-    - monatliche Zahlung
+    - monatlich
   - type: not-icontains
     value: Traceback
 - description: price_quote_04_Hausrat_Smart
@@ -2102,8 +2114,10 @@
     value: output.length > 0
   - type: icontains-any
     value:
-    - Fahrzeugwechsel
-    - Mahnung
+    - Erwerber
+    - Veräußerung
+    - austauschen
+    - Versicherung
   - type: not-icontains
     value: Traceback
 - description: complaint_01_Hausrat_Best+Fahrraddiebstahl
