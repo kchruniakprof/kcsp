@@ -59,6 +59,17 @@ class SectionDetails(BaseModel):
             "'Kosten', 'Versicherung'). Empty list if none."
         ),
     )
+    section_types: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Multi-label classification using the enum-16 schema. "
+            "Choose ALL that apply from: INSURER_ID, PRODUCT_STRUCTURE, RISK_OBJECT, "
+            "WHAT_IS_INSURED, EXCLUSIONS, LIMITS_COMPENSATION, CLAIMS_SETTLEMENT, "
+            "INSURED_PERSONS, WHERE_COVERED, OBLIGATIONS, PAYMENT, CONTRACT_FORMATION, "
+            "TERM_CANCELLATION, PRICING_DISCOUNT, COMPLAINTS_LAW, SPECIAL_PROVISIONS. "
+            "Empty list if none apply (keyword labels used as fallback)."
+        ),
+    )
 
 
 _SYSTEM_PROMPT = """\

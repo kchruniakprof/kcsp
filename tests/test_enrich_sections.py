@@ -190,3 +190,75 @@ def test_failed_section_written_to_error_log(tmp_path):
     assert error_file.exists()
     errors = json.loads(error_file.read_text())
     assert any(e["section_id"] == 1 for e in errors)
+
+
+# ── A3: section_types union ───────────────────────────────────────────────────
+
+def test_a3_section_types_union(tmp_path):
+    """keyword SPECIAL_PROVISIONS + LLM WHAT_IS_INSURED → union in output."""
+    from src.enrich_sections import enrich_sections
+    rows = [{
+        "section_id": 10, "doc_id": "x", "heading": "§A", "markdown": "Text",
+        "breadcrumb": "x", "sparte": "Kfz", "tarif": "Spezial",
+        "is_retrieval_unit": True, "section_types": ["SPECIAL_PROVISIONS"],
+        "title": None, "description": None, "questions": None, "topic_tags": None,
+    }]
+    df = pd.DataFrame(rows)
+
+    fake = SectionDetails(
+        title="T", description="D", questions=["Q"],
+        topic_tags=[], section_types=["WHAT_IS_INSURED"],
+    )
+    with patch("src.enrich_sections.enrich_section", return_value=fake):
+        out = enrich_sections(df, tmp_path, client=MagicMock(), auto_yes=True)
+
+    st = list(out[out["section_id"] == 10].iloc[0]["section_types"])
+    assert "SPECIAL_PROVISIONS" in st
+    assert "WHAT_IS_INSURED" in st
+
+
+def test_a3_llm_empty_section_types_falls_back_to_keyword(tmp_path):
+    """LLM returns [] → section_types = keyword_types, not empty list."""
+    from src.enrich_sections import enrich_sections
+    rows = [{
+        "section_id": 11, "doc_id": "x", "heading": "§A", "markdown": "Text",
+        "breadcrumb": "x", "sparte": "Kfz", "tarif": "Spezial",
+        "is_retrieval_unit": True, "section_types": ["EXCLUSIONS"],
+        "title": None, "description": None, "questions": None, "topic_tags": None,
+    }]
+    df = pd.DataFrame(rows)
+
+    fake = SectionDetails(
+        title="T", description="D", questions=["Q"],
+        topic_tags=[], section_types=[],
+    )
+    with patch("src.enrich_sections.enrich_section", return_value=fake):
+        out = enrich_sections(df, tmp_path, client=MagicMock(), auto_yes=True)
+
+    st = list(out[out["section_id"] == 11].iloc[0]["section_types"])
+    assert st != []
+    assert "EXCLUSIONS" in st
+
+
+def test_a3_llm_section_types_written_to_parquet(tmp_path):
+    """section_types persisted correctly to parquet after union."""
+    from src.enrich_sections import enrich_sections
+    rows = [{
+        "section_id": 12, "doc_id": "x", "heading": "§A", "markdown": "Text",
+        "breadcrumb": "x", "sparte": "Kfz", "tarif": "Spezial",
+        "is_retrieval_unit": True, "section_types": ["PAYMENT"],
+        "title": None, "description": None, "questions": None, "topic_tags": None,
+    }]
+    df = pd.DataFrame(rows)
+
+    fake = SectionDetails(
+        title="T", description="D", questions=["Q"],
+        topic_tags=[], section_types=["OBLIGATIONS"],
+    )
+    with patch("src.enrich_sections.enrich_section", return_value=fake):
+        enrich_sections(df, tmp_path, client=MagicMock(), auto_yes=True)
+
+    out = pd.read_parquet(tmp_path / "sections_enriched.parquet")
+    st = list(out[out["section_id"] == 12].iloc[0]["section_types"])
+    assert "PAYMENT" in st
+    assert "OBLIGATIONS" in st

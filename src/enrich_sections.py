@@ -86,12 +86,11 @@ def enrich_sections(
     _log.info("start", total=total, already_done=len(checkpoint))
 
     result_df = sections_df.copy()
-    # Ensure Core-4 columns exist with object dtype before assigning list values
-    for col in ("title", "description", "questions", "topic_tags"):
+    # Ensure required columns exist with object dtype before assigning list values
+    for col in ("title", "description", "questions", "topic_tags", "section_types"):
         if col not in result_df.columns:
             result_df[col] = None
-    # Force object dtype so list assignments don't trigger broadcast errors
-    for col in ("questions", "topic_tags"):
+    for col in ("questions", "topic_tags", "section_types"):
         result_df[col] = result_df[col].astype(object)
 
     for _, row in retrieval_df.iterrows():
@@ -108,6 +107,10 @@ def enrich_sections(
             result_df.at[i, "description"] = details.description
             result_df.at[i, "questions"] = details.questions
             result_df.at[i, "topic_tags"] = details.topic_tags
+            keyword_types = list(row.get("section_types") or [])
+            llm_types = list(details.section_types or [])
+            merged = list(set(keyword_types) | set(llm_types))
+            result_df.at[i, "section_types"] = merged if merged else keyword_types
             checkpoint[sid] = True
             _save_checkpoint(output_dir, checkpoint)
             _log.info("enriched", section_id=sid)
