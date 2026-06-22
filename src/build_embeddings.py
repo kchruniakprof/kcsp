@@ -59,7 +59,7 @@ def _embed_text(row: dict[str, Any]) -> str:
             parts.append(str(q).strip())
 
     md = row.get("markdown")
-    body = str(md)[:400] if not _is_missing(md) else ""
+    body = str(md)[:2500] if not _is_missing(md) else ""
     if body.strip():
         parts.append(body)
 

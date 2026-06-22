@@ -62,9 +62,9 @@ def test_embed_text_no_placeholder_for_missing_fields():
     assert "null" not in text
 
 
-def test_embed_text_markdown_truncated_at_400():
+def test_embed_text_markdown_truncated_at_2500():
     from src.build_embeddings import _embed_text
-    long_md = "X" * 600
+    long_md = "X" * 3000
     row = {
         "heading": "§D",
         "title": "T",
@@ -73,9 +73,10 @@ def test_embed_text_markdown_truncated_at_400():
         "markdown": long_md,
     }
     text = _embed_text(row)
-    # The markdown portion must be exactly 400 chars
-    assert "X" * 400 in text
-    assert "X" * 401 not in text
+    # The markdown portion must be capped at 2500 chars (widened from 400 to
+    # surface facts deep in medium-sized retrieval units)
+    assert "X" * 2500 in text
+    assert "X" * 2501 not in text
 
 
 def test_embed_text_short_markdown_uses_full():

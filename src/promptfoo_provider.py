@@ -114,7 +114,7 @@ def _get_rag():
         retriever=retriever,
         generator=Generator(client=groq_client_raw),
         critic=Critic(client=instructor_client, model=REGISTRY["critic"], _wrap_instructor=False),
-        top_k=5,
+        top_k=10,
         enable_cross_sell=True,
         documents_df=docs_df,
         sections_df=secs_df,

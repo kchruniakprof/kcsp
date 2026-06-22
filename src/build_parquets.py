@@ -13,10 +13,82 @@ from typing import Optional
 
 import pandas as pd
 
-from src.hierarchy_parser import DOCUMENT_CATALOG, parse_all
+from src.hierarchy_parser import DOCUMENT_CATALOG, parse_all, _assign_types
 
 _PAGE_REF_RE = re.compile(r"\([A-Z]+\.?\d*\)\s*\d+")
 _SINGLE_LETTER_RE = re.compile(r"^[A-Z]$")
+
+# --- oversized retrieval-unit splitting -----------------------------------
+# Monster chunks (e.g. §E Kasko 24k, §N+Anhang/Safe-Drive 16k) glob many plain
+# '## ' sub-headings that carry no L2 code, hiding deep facts from the embed
+# window. Split such units at '## ' boundaries into ~target-sized child units.
+_SPLIT_MAX_CHARS = 4000   # split level-2 units longer than this
+_SPLIT_TARGET = 1800      # accumulate '## ' blocks up to ~this per child
+_HEADING_RE = re.compile(r"^## (.+)$", re.MULTILINE)
+
+
+def _split_md_by_headings(markdown: str, target: int = _SPLIT_TARGET) -> list[tuple[str, str]]:
+    """Split markdown at '## ' boundaries into (heading, chunk) accumulating
+    blocks up to ~target chars. Returns [] when fewer than 2 headings."""
+    heads = list(_HEADING_RE.finditer(markdown))
+    if len(heads) < 2:
+        return []
+    blocks: list[tuple[str, str]] = []
+    for i, h in enumerate(heads):
+        start = h.start()
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(markdown)
+        blocks.append((h.group(1).strip(), markdown[start:end].strip()))
+
+    chunks: list[tuple[str, str]] = []
+    cur_head: Optional[str] = None
+    cur_parts: list[str] = []
+    cur_len = 0
+    for head, body in blocks:
+        if cur_parts and cur_len + len(body) > target:
+            chunks.append((cur_head, "\n\n".join(cur_parts)))
+            cur_head, cur_parts, cur_len = None, [], 0
+        if cur_head is None:
+            cur_head = head
+        cur_parts.append(body)
+        cur_len += len(body)
+    if cur_parts:
+        chunks.append((cur_head, "\n\n".join(cur_parts)))
+    return chunks if len(chunks) > 1 else []
+
+
+def _split_oversized_units(sec_rows: list[dict]) -> list[dict]:
+    """Replace oversized level-2 rows with '## '-boundary child rows.
+    Reassigns contiguous section_ids and remaps parent_section_id."""
+    out: list[dict] = []
+    tmp_id = 10_000_000  # temporary unique ids for new children
+    for row in sec_rows:
+        if row.get("level") == 2 and len(str(row.get("markdown", ""))) > _SPLIT_MAX_CHARS:
+            chunks = _split_md_by_headings(str(row["markdown"]))
+            if chunks:
+                base_bc = row["breadcrumb"]
+                for n, (chunk_head, chunk_md) in enumerate(chunks, 1):
+                    tmp_id += 1
+                    head = chunk_head or row["heading"]
+                    out.append({
+                        **row,
+                        "section_id": tmp_id,
+                        "section_code": f"{row['section_code']}#{n}",
+                        "section_types": _assign_types(head, chunk_md),
+                        "heading": head,
+                        "markdown": chunk_md,
+                        "breadcrumb": f"{base_bc} > {head}",
+                    })
+                continue
+        out.append(row)
+
+    # --- renumber contiguously, remap parent_section_id ---
+    old2new = {r["section_id"]: i + 1 for i, r in enumerate(out)}
+    for i, r in enumerate(out):
+        r["section_id"] = i + 1
+        p = r.get("parent_section_id")
+        if p is not None and not pd.isna(p):
+            r["parent_section_id"] = old2new.get(int(p), r["section_id"])
+    return out
 
 
 def is_index_section(heading: str, body: str) -> bool:
@@ -101,6 +173,11 @@ def build(corpus_dir: Path, output_dir: Path) -> None:
     # --- strip noise from stored markdown ---
     for row in sec_rows:
         row["markdown"] = strip_noise(row["markdown"])
+
+    # --- split oversized level-2 units (de-glob monster chunks) ---
+    # Applied as a post-enrichment step via apply_oversized_split.py so that
+    # existing Core-4 enrichment + checkpoints are preserved (see that script).
+    # Not wired into build() to keep the L1/L2 id-space and counts stable.
 
     all_df = pd.DataFrame(sec_rows)
 
