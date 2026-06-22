@@ -105,6 +105,21 @@ _TYPE_RULES: list[tuple[str, list[str]]] = [
 ]
 
 
+_PREAMBLE_LIST_RE = re.compile(r'^\s*[-\d]', re.MULTILINE)
+_PREAMBLE_SENT_RE = re.compile(r'.{30,}[.!?]')
+_FREETEXT_HEAD_RE = re.compile(r'^## (.+)$', re.MULTILINE)
+_FREETEXT_MARKER_RE = re.compile(r'Anhang|Sonderbedingungen|Besondere Bedingungen', re.IGNORECASE)
+
+
+def _is_substantive_preamble(body: str) -> bool:
+    s = body.strip()
+    if not s:
+        return False
+    return (len(s) >= 200
+            or bool(_PREAMBLE_LIST_RE.search(s))
+            or bool(_PREAMBLE_SENT_RE.search(s)))
+
+
 def _collect_headings(markdown: str) -> str:
     """Return all ## heading lines from markdown joined for keyword search."""
     return " ".join(re.findall(r'^## (.+)$', markdown, re.MULTILINE))
@@ -211,9 +226,68 @@ def parse_document(file_path: Path, _id_start: int = 1) -> Document:
         sid += 1
 
         if l2_pattern:
+            l2_in_l1 = list(l2_pattern.finditer(md))
+
+            # ── Rule 1: L1 preamble → {code}.0 section ───────────────────────
+            if l2_in_l1:
+                pre_raw = md[:l2_in_l1[0].start()]
+                pre_body = re.sub(r'^## [^\n]+\n?', '', pre_raw, count=1).strip()
+                if _is_substantive_preamble(pre_body):
+                    pre_code = f"{code}.0"
+                    sections.append(Section(
+                        doc_id=doc_id, section_id=sid, sparte=sparte, tarif=tarif,
+                        section_code=pre_code,
+                        section_types=_assign_types(heading, pre_body),
+                        topic_tags=[],
+                        heading="Vorbemerkung",
+                        markdown=pre_body,
+                        breadcrumb=f"{l1.breadcrumb} > §{pre_code} Vorbemerkung",
+                        confidence_score=1.0,
+                        level=2,
+                        parent_section_id=l1.section_id,
+                    ))
+                    sid += 1
+
             l2_sections = _parse_l2(l1, l2_pattern, sid_start=sid)
             sections.extend(l2_sections)
             sid += len(l2_sections)
+
+            # ── Rule 2: tail free-text sections (marker-only) ─────────────
+            # Only emit headings whose text OR first 200 chars of body
+            # contain the attachment-marker regex.
+            if l2_in_l1:
+                tail = md[l2_in_l1[-1].start():]
+                l2_pos_in_tail = {m.start() for m in l2_pattern.finditer(tail)}
+                ft_heads = [h for h in _FREETEXT_HEAD_RE.finditer(tail)
+                            if h.start() not in l2_pos_in_tail]
+                ft_count = 0
+                for j, ft_m in enumerate(ft_heads):
+                    ft_heading = ft_m.group(1).strip()
+                    ft_start = ft_m.start()
+                    ft_end = ft_heads[j + 1].start() if j + 1 < len(ft_heads) else len(tail)
+                    ft_md = tail[ft_start:ft_end].strip()
+                    if not ft_md:
+                        continue
+                    # Gate: emit only if heading or first 200 chars of body has marker
+                    body_after = ft_md[len(f"## {ft_heading}"):].strip()[:200]
+                    if not (_FREETEXT_MARKER_RE.search(ft_heading) or
+                            _FREETEXT_MARKER_RE.search(body_after)):
+                        continue
+                    ft_count += 1
+                    ft_code = f"{code}-FT{ft_count}"
+                    sections.append(Section(
+                        doc_id=doc_id, section_id=sid, sparte=sparte, tarif=tarif,
+                        section_code=ft_code,
+                        section_types=_assign_types(ft_heading, ft_md),
+                        topic_tags=[],
+                        heading=ft_heading,
+                        markdown=ft_md,
+                        breadcrumb=f"{l1.breadcrumb} > §{ft_code} {ft_heading}",
+                        confidence_score=1.0,
+                        level=2,
+                        parent_section_id=l1.section_id,
+                    ))
+                    sid += 1
 
     return Document(
         doc_id=doc_id, sparte=sparte, tarif=tarif,

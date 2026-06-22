@@ -210,6 +210,64 @@ def test_section_ids_globally_unique():
     assert len(all_ids) == len(set(all_ids)), "Duplicate section_ids across documents"
 
 
+# --- C1: Preamble + FreeText sections ---
+
+def test_c1_q7_preamble_1_0_exists():
+    doc = parse_document(HAUSRAT_SMART)
+    codes = {s.section_code for s in doc.sections}
+    assert "1.0" in codes, "§1.0 preamble not found in Hausrat Smart"
+
+
+def test_c1_q7_preamble_1_0_contains_wallboxen():
+    doc = parse_document(HAUSRAT_SMART)
+    sec = next(s for s in doc.sections if s.section_code == "1.0")
+    assert "Wallboxen" in sec.markdown or "wallbox" in sec.markdown.lower()
+
+
+def test_c1_q7_preamble_1_0_level_and_parent():
+    doc = parse_document(HAUSRAT_SMART)
+    sec_1 = next(s for s in doc.sections if s.section_code == "1")
+    sec_1_0 = next(s for s in doc.sections if s.section_code == "1.0")
+    assert sec_1_0.level == 2
+    assert sec_1_0.parent_section_id == sec_1.section_id
+
+
+def test_c1_q7_preamble_breadcrumb_vorbemerkung():
+    doc = parse_document(HAUSRAT_SMART)
+    sec_1_0 = next(s for s in doc.sections if s.section_code == "1.0")
+    assert "Vorbemerkung" in sec_1_0.breadcrumb
+
+
+def test_c1_q1_kfz_standard_safe_drive_accessible():
+    doc = parse_document(KFZ_STANDARD)
+    safe_drive = [s for s in doc.sections if "Safe Drive" in s.heading or "Safe Drive" in s.breadcrumb]
+    assert safe_drive, "No section with 'Safe Drive' found in KFZ Standard after C1"
+
+
+def test_c1_q1_safe_drive_section_is_level_2():
+    doc = parse_document(KFZ_STANDARD)
+    safe_drive = [s for s in doc.sections if "Safe Drive" in s.heading or "Safe Drive" in s.breadcrumb]
+    assert any(s.level == 2 for s in safe_drive), "No level-2 section with 'Safe Drive'"
+
+
+def test_c1_q2_ev_wechselpraemie_has_parent_section_e():
+    """Regression guard: EV-Wechselprämie content already in E.5 (parent=§E)."""
+    doc = parse_document(KFZ_STANDARD)
+    sec_e = next(s for s in doc.sections if s.section_code == "E")
+    ev_sects = [s for s in doc.sections if "lektrofahrzeug-Wechselpr" in s.markdown]
+    assert ev_sects, "No section with EV-Wechselprämie content"
+    assert any(s.parent_section_id == sec_e.section_id for s in ev_sects), \
+        "No EV-Wechselprämie section with §E as parent"
+
+
+def test_c1_preamble_sections_are_nonempty():
+    docs = parse_all(CORPUS)
+    preambles = [s for doc in docs for s in doc.sections if s.section_code.endswith(".0")]
+    assert preambles, "No preamble sections found after C1"
+    for s in preambles:
+        assert s.markdown.strip(), f"Empty preamble markdown: {s.doc_id} §{s.section_code}"
+
+
 # --- Denormalized fields ---
 
 def test_sections_have_denormalized_sparte_and_tarif():
