@@ -29,12 +29,33 @@ load_dotenv(_ROOT / ".env")
 # Lazy RAGAssistant factory — built once per process
 # ---------------------------------------------------------------------------
 
+class _BGE3Embedder:
+    """Wraps BGEM3FlagModel — exposes encode() for dense and encode_sparse() for RRF."""
+
+    def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
+        from FlagEmbedding import BGEM3FlagModel
+        self._model = BGEM3FlagModel(model_name, use_fp16=True)
+
+    def encode(self, texts: Any, normalize_embeddings: bool = True, **kwargs) -> Any:
+        import numpy as np
+        if isinstance(texts, str):
+            texts = [texts]
+        out = self._model.encode(texts, return_dense=True, return_sparse=False, batch_size=12)
+        return out["dense_vecs"]
+
+    def encode_sparse(self, texts: Any) -> list:
+        if isinstance(texts, str):
+            texts = [texts]
+        out = self._model.encode(texts, return_dense=False, return_sparse=True, batch_size=12)
+        return out["lexical_weights"]
+
+
 @lru_cache(maxsize=1)
 def _get_rag():
+    import pickle
     import numpy as np
     import pandas as pd
     from groq import Groq
-    from sentence_transformers import SentenceTransformer
 
     from src.critic import Critic
     from src.generator import Generator
@@ -62,9 +83,25 @@ def _get_rag():
     sec_embs = np.stack(retrieval_df["embedding"].values).astype(np.float32)
     sections = retrieval_df.drop(columns=["embedding"]).to_dict("records")
 
-    embedder = SentenceTransformer("BAAI/bge-m3")
+    # D3: load sparse embeddings if available (sections + subsections pkl)
+    sparse_embs: list | None = None
+    secs_mask = secs_df["is_retrieval_unit"] == True
+    subs_mask = subs_df["is_retrieval_unit"] == True
+    secs_sparse_path = parquet_dir / "sections_sparse.pkl"
+    subs_sparse_path = parquet_dir / "subsections_sparse.pkl"
+    if secs_sparse_path.exists() and subs_sparse_path.exists():
+        with open(secs_sparse_path, "rb") as f:
+            secs_sparse_all = pickle.load(f)
+        with open(subs_sparse_path, "rb") as f:
+            subs_sparse_all = pickle.load(f)
+        # Filter to retrieval units only, matching order of retrieval_df
+        secs_sparse = [s for s, m in zip(secs_sparse_all, secs_mask) if m]
+        subs_sparse = [s for s, m in zip(subs_sparse_all, subs_mask) if m]
+        sparse_embs = secs_sparse + subs_sparse
+
+    embedder = _BGE3Embedder()
     retriever = Retriever(sections=sections, embedder=embedder, sec_embs=sec_embs,
-                          reranker=CrossEncoderReranker())
+                          sparse_embs=sparse_embs, reranker=CrossEncoderReranker())
 
     enable_ensemble = os.environ.get("ENABLE_ENSEMBLE", "false").lower() == "true"
     ensemble_critic = (

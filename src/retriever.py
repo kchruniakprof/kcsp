@@ -8,6 +8,10 @@ D5 changes:
 G5 changes:
   - CrossEncoderReranker with lazy model loading
   - Retriever accepts optional reranker + pool_k parameter
+D3 changes:
+  - sparse_embs: list[dict[int, float]] for BGE-M3 lexical weights
+  - _compute_rrf_scores: pure RRF fusion (k=60)
+  - retrieve_multi: RRF when sparse available + embedder.encode_sparse; dense-only fallback
 """
 from __future__ import annotations
 
@@ -24,6 +28,21 @@ from src.observability import get_logger
 _log = get_logger("retriever")
 
 _SECTION_TYPE_BOOST = np.float32(0.04)
+_RRF_K = 60
+
+
+def _compute_rrf_scores(
+    dense_scores: np.ndarray,
+    sparse_scores: np.ndarray,
+    k: int = _RRF_K,
+) -> np.ndarray:
+    """Reciprocal Rank Fusion: 1/(k+dense_rank) + 1/(k+sparse_rank)."""
+    n = len(dense_scores)
+    dense_rank = np.empty(n, dtype=np.int32)
+    sparse_rank = np.empty(n, dtype=np.int32)
+    dense_rank[np.argsort(dense_scores)[::-1]] = np.arange(n)
+    sparse_rank[np.argsort(sparse_scores)[::-1]] = np.arange(n)
+    return (1.0 / (k + dense_rank) + 1.0 / (k + sparse_rank)).astype(np.float32)
 
 
 @dataclass
@@ -69,6 +88,7 @@ class Retriever:
         sections: list[dict[str, Any]],
         embedder: Any,
         sec_embs: Optional[np.ndarray] = None,
+        sparse_embs: Optional[list] = None,
         pruner: Optional[ContextPruner] = None,
         reranker: Optional[CrossEncoderReranker] = None,
     ) -> None:
@@ -77,6 +97,7 @@ class Retriever:
         self._embedder = embedder
         self._pruner = pruner or ContextPruner()
         self._reranker = reranker
+        self._sparse_embs = sparse_embs  # list[dict[int, float]] or None
 
         if sec_embs is not None:
             self._sec_embs = np.array(sec_embs, dtype=np.float32)
@@ -203,6 +224,24 @@ class Retriever:
 
         scores_matrix = cand_embs @ q_vecs.T
         best_scores = scores_matrix.max(axis=1)
+
+        # ── D3: RRF fusion when sparse embeddings + encoder available ─────────
+        _use_rrf = (
+            self._sparse_embs is not None
+            and hasattr(self._embedder, "encode_sparse")
+        )
+        if _use_rrf:
+            q_sparse = self._embedder.encode_sparse(queries[0])
+            if isinstance(q_sparse, list):
+                q_sparse = q_sparse[0]
+            sparse_scores = np.zeros(len(positions), dtype=np.float32)
+            for ci, pos in enumerate(positions):
+                s_emb = self._sparse_embs[pos]
+                if s_emb:
+                    sparse_scores[ci] = sum(
+                        s_emb.get(tid, 0.0) * w for tid, w in q_sparse.items()
+                    )
+            best_scores = _compute_rrf_scores(best_scores, sparse_scores)
 
         # A1: additive +0.04 boost for chunks matching ≥1 requested type (once, not stacked)
         if _section_types_set:

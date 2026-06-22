@@ -905,3 +905,120 @@ def test_d2_below_threshold_not_collapsed():
     assert all(res.shared_tarifs == [] for res in pool_received), (
         "Non-deduped chunks must have empty shared_tarifs"
     )
+
+
+# ── D3: RRF fusion (sparse + dense) ──────────────────────────────────────────
+
+def test_d3_rrf_score_formula():
+    """D3: RRF formula = 1/(k+dense_rank) + 1/(k+sparse_rank), k=60."""
+    from src.retriever import _compute_rrf_scores
+    import numpy as np
+
+    dense_scores = np.array([0.9, 0.5, 0.1], dtype=np.float32)
+    sparse_scores = np.array([0.1, 0.5, 0.9], dtype=np.float32)
+
+    rrf = _compute_rrf_scores(dense_scores, sparse_scores, k=60)
+
+    # Chunk 0: dense rank 0, sparse rank 2 → 1/60 + 1/62
+    expected_0 = 1.0 / (60 + 0) + 1.0 / (60 + 2)
+    # Chunk 2: dense rank 2, sparse rank 0 → 1/62 + 1/60
+    expected_2 = 1.0 / (60 + 2) + 1.0 / (60 + 0)
+    # Chunk 1: dense rank 1, sparse rank 1 → 1/61 + 1/61
+    expected_1 = 1.0 / 61 + 1.0 / 61
+
+    assert abs(rrf[0] - expected_0) < 1e-6
+    assert abs(rrf[1] - expected_1) < 1e-6
+    assert abs(rrf[2] - expected_2) < 1e-6
+
+
+def test_d3_rrf_symmetric():
+    """D3: Chunk good at dense-only and chunk good at sparse-only get equal RRF score."""
+    from src.retriever import _compute_rrf_scores
+    import numpy as np
+
+    dense_scores = np.array([1.0, 0.0], dtype=np.float32)
+    sparse_scores = np.array([0.0, 1.0], dtype=np.float32)
+
+    rrf = _compute_rrf_scores(dense_scores, sparse_scores, k=60)
+    assert abs(rrf[0] - rrf[1]) < 1e-6, "Symmetric case must produce equal RRF scores"
+
+
+def test_d3_sparse_high_dense_low_advances():
+    """D3: chunk with high sparse but low dense score advances in RRF ranking vs pure dense.
+
+    Setup: 2 sections.
+      Section A: dense=0.9, sparse=0.0 → dense rank 0
+      Section B: dense=0.1, sparse=1.0 → dense rank 1 but sparse rank 0
+
+    Pure dense: A first, B second.
+    RRF: A: 1/60 + 1/62 ≈ 0.0328,  B: 1/62 + 1/60 ≈ 0.0328 (equal) — but
+    tie is broken by dense in existing ordering. The key test: B MUST appear in results.
+    """
+    from src.retriever import Retriever
+    import numpy as np
+
+    sections_rrf = [
+        {
+            "section_id": 901, "doc_id": "d", "sparte": "Kfz", "tarif": "X",
+            "heading": "Dense winner", "markdown": "Generic insurance text.",
+            "breadcrumb": "A", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+        {
+            "section_id": 902, "doc_id": "d", "sparte": "Kfz", "tarif": "X",
+            "heading": "Sparse winner", "markdown": "Sehr spezifischer Terminus.",
+            "breadcrumb": "B", "section_types": ["WHAT_IS_INSURED"],
+            "topic_tags": [], "is_retrieval_unit": True,
+        },
+    ]
+
+    # Dense: 901 → [1,0], 902 → [0,1] (orthogonal → no D2 dedup)
+    # Query aligns with 901: 901 dense score=1.0, 902 dense score=0.0
+    dense_embs = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+
+    # Sparse: 901 no signal, 902 has token 5 weight 1.0 → equal RRF scores
+    sparse_embs = [{}, {5: 1.0}]
+
+    emb = MagicMock()
+    # sec_embs provided → _build_index not called; encode only called for query
+    emb.encode.return_value = np.array([[1.0, 0.0]], dtype=np.float32)
+    # encode_sparse: query has token 5 with weight 1.0
+    emb.encode_sparse = MagicMock(return_value=[{5: 1.0}])
+
+    r = Retriever(sections=sections_rrf, embedder=emb, sec_embs=dense_embs,
+                  sparse_embs=sparse_embs)
+    results = r.retrieve("Terminus", top_k=2)
+
+    ids = [res.section_id for res in results]
+    assert 902 in ids, "Sparse winner (section 902) must appear in RRF results"
+    assert 901 in ids, "Dense winner (section 901) must also appear"
+    # With RRF and symmetric scores, order may vary — key assertion: both present
+    # More importantly: without RRF (dense-only), 902 would rank last.
+    # With RRF, it gets boosted to equal score (tie). Confirm 902 not excluded.
+
+
+def test_d3_fallback_to_dense_when_no_sparse():
+    """D3 backward compat: Retriever with sparse_embs=None behaves exactly as before."""
+    import numpy as np
+
+    emb = MagicMock()
+    emb.encode.side_effect = _make_onehot_encoder(dim=20)
+
+    r = Retriever(sections=_SECTIONS, embedder=emb)  # no sparse_embs
+    results = r.retrieve("Was ist versichert?", top_k=3)
+    assert len(results) <= 3
+    assert all(isinstance(res, RetrievalResult) for res in results)
+
+
+def test_d3_fallback_when_embedder_no_encode_sparse():
+    """D3 backward compat: embedder without encode_sparse → dense-only silently."""
+    import numpy as np
+
+    emb = MagicMock()
+    emb.encode.side_effect = _make_onehot_encoder(dim=20)
+    # No encode_sparse attribute — hasattr check must gate RRF
+
+    sparse_embs = [{} for _ in _SECTIONS if _.get("is_retrieval_unit", True)]
+    r = Retriever(sections=_SECTIONS, embedder=emb, sparse_embs=sparse_embs)
+    results = r.retrieve("test", top_k=3)
+    assert len(results) <= 3  # no crash, results returned

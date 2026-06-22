@@ -146,13 +146,20 @@ def test_build_embeddings_importable():
     assert build_embeddings is not None
 
 
+def _fake_model_output(n: int):
+    return {
+        "dense_vecs": np.random.rand(n, 1024).astype("float32"),
+        "lexical_weights": [{42: 0.5} for _ in range(n)],
+    }
+
+
 def test_build_embeddings_adds_embedding_column(tmp_path):
     from src.build_embeddings import build_embeddings
     df = _make_enriched_df()
     df.to_parquet(tmp_path / "sections.parquet", index=False)
 
     fake_model = MagicMock()
-    fake_model.encode.return_value = np.random.rand(1, 1024).astype("float32")
+    fake_model.encode.return_value = _fake_model_output(1)  # 1 retrieval unit
 
     with patch("src.build_embeddings._load_model", return_value=fake_model):
         build_embeddings(parquet_dir=tmp_path, validate=False)
@@ -161,13 +168,34 @@ def test_build_embeddings_adds_embedding_column(tmp_path):
     assert "embedding" in out.columns
 
 
+def test_build_embeddings_saves_sparse_pkl(tmp_path):
+    """D3: build_embeddings must save {stem}_sparse.pkl next to the parquet."""
+    from src.build_embeddings import build_embeddings
+    import pickle
+    df = _make_enriched_df()
+    df.to_parquet(tmp_path / "sections.parquet", index=False)
+
+    fake_model = MagicMock()
+    fake_model.encode.return_value = _fake_model_output(1)
+
+    with patch("src.build_embeddings._load_model", return_value=fake_model):
+        build_embeddings(parquet_dir=tmp_path, validate=False)
+
+    sparse_path = tmp_path / "sections_sparse.pkl"
+    assert sparse_path.exists(), "sections_sparse.pkl must be saved alongside sections.parquet"
+    with open(sparse_path, "rb") as f:
+        sparse_list = pickle.load(f)
+    assert isinstance(sparse_list, list)
+    assert len(sparse_list) == len(df)
+
+
 def test_l1_parent_has_no_embedding(tmp_path):
     from src.build_embeddings import build_embeddings
     df = _make_enriched_df()
     df.to_parquet(tmp_path / "sections.parquet", index=False)
 
     fake_model = MagicMock()
-    fake_model.encode.return_value = np.random.rand(1, 1024).astype("float32")
+    fake_model.encode.return_value = _fake_model_output(1)
 
     with patch("src.build_embeddings._load_model", return_value=fake_model):
         build_embeddings(parquet_dir=tmp_path, validate=False)
@@ -175,3 +203,25 @@ def test_l1_parent_has_no_embedding(tmp_path):
     out = pd.read_parquet(tmp_path / "sections.parquet")
     parent_row = out[out["section_id"] == 2]
     assert parent_row["embedding"].isna().all() or parent_row["embedding"].iloc[0] is None
+
+
+def test_d3_sparse_pkl_retrieval_unit_has_weights(tmp_path):
+    """D3: sparse pkl — retrieval-unit rows must have non-None sparse dicts."""
+    from src.build_embeddings import build_embeddings
+    import pickle
+    df = _make_enriched_df()
+    df.to_parquet(tmp_path / "sections.parquet", index=False)
+
+    fake_model = MagicMock()
+    fake_model.encode.return_value = _fake_model_output(1)
+
+    with patch("src.build_embeddings._load_model", return_value=fake_model):
+        build_embeddings(parquet_dir=tmp_path, validate=False)
+
+    with open(tmp_path / "sections_sparse.pkl", "rb") as f:
+        sparse_list = pickle.load(f)
+
+    # section_id=1 is_retrieval_unit=True → sparse[0] must be dict
+    assert isinstance(sparse_list[0], dict), "Retrieval unit must have sparse dict"
+    # section_id=2 is_retrieval_unit=False → sparse[1] must be None
+    assert sparse_list[1] is None, "L1-parent must have None sparse"

@@ -6,9 +6,14 @@ Embed-text composition (ADR-006):
 
 Only is_retrieval_unit=True rows receive embeddings.
 L1-parents (is_retrieval_unit=False) get embedding=None.
+
+D3: switched to BGEM3FlagModel (FlagEmbedding) for sparse+dense.
+Dense stored in parquet 'embedding' column (backward compat).
+Sparse stored as {parquet_stem}_sparse.pkl next to parquet.
 """
 from __future__ import annotations
 
+import pickle
 from pathlib import Path
 from typing import Any, Optional
 
@@ -16,12 +21,12 @@ import numpy as np
 import pandas as pd
 
 _BGE_MODEL_NAME = "BAAI/bge-m3"
-_BATCH_SIZE = 32
+_BATCH_SIZE = 12  # BGEM3FlagModel recommendation
 
 
 def _load_model() -> Any:
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(_BGE_MODEL_NAME)
+    from FlagEmbedding import BGEM3FlagModel
+    return BGEM3FlagModel(_BGE_MODEL_NAME, use_fp16=True)
 
 
 def _is_missing(val: Any) -> bool:
@@ -61,29 +66,38 @@ def _embed_text(row: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def _embed_dataframe(df: pd.DataFrame, model: Any) -> pd.DataFrame:
-    """Add 'embedding' column; retrieval-unit rows get vectors, parents get None."""
+def _embed_dataframe(df: pd.DataFrame, model: Any) -> tuple[pd.DataFrame, list]:
+    """Add 'embedding' column (dense); return sparse list aligned to df rows.
+
+    Returns (df_with_embedding, sparse_list) where sparse_list[i] is a
+    dict[int, float] for retrieval units and None for L1-parents.
+    """
     df = df.copy()
     df["embedding"] = None
 
     mask = df["is_retrieval_unit"] == True
     retrieval_df = df[mask]
 
+    sparse_list: list = [None] * len(df)
+
     if len(retrieval_df) == 0:
-        return df
+        return df, sparse_list
 
     texts = [_embed_text(row) for _, row in retrieval_df.iterrows()]
-    embeddings = model.encode(
+    output = model.encode(
         texts,
+        return_dense=True,
+        return_sparse=True,
         batch_size=_BATCH_SIZE,
-        normalize_embeddings=True,
-        show_progress_bar=True,
     )
+    dense_embs = output["dense_vecs"]
+    sparse_embs = output["lexical_weights"]
 
     for i, (idx, _) in enumerate(retrieval_df.iterrows()):
-        df.at[idx, "embedding"] = embeddings[i]
+        df.at[idx, "embedding"] = dense_embs[i]
+        sparse_list[idx] = sparse_embs[i]
 
-    return df
+    return df, sparse_list
 
 
 def _validate(df: pd.DataFrame) -> None:
@@ -110,11 +124,14 @@ def build_embeddings(
         if not fpath.exists():
             continue
         df = pd.read_parquet(fpath)
-        enriched = _embed_dataframe(df, model)
+        enriched, sparse_list = _embed_dataframe(df, model)
         if validate:
             _validate(enriched)
         enriched.to_parquet(fpath, index=False)
-        print(f"[build_embeddings] Written: {fpath} (embeddings added)")
+        sparse_path = parquet_dir / f"{fpath.stem}_sparse.pkl"
+        with open(sparse_path, "wb") as f:
+            pickle.dump(sparse_list, f)
+        print(f"[build_embeddings] Written: {fpath} + {sparse_path}")
 
 
 if __name__ == "__main__":
