@@ -196,7 +196,7 @@ export default function AdminUserHistoryPage() {
         {traceMessageId !== null && (
           <TraceDrawer
             messageId={traceMessageId}
-            basePath="/admin"
+            basePath={`${BASE}/admin`}
             onClose={() => setTraceMessageId(null)}
           />
         )}

@@ -523,6 +523,7 @@ export default function ChatPage() {
         {traceMessageId !== null && (
           <TraceDrawer
             messageId={traceMessageId}
+            basePath={BASE}
             onClose={() => setTraceMessageId(null)}
           />
         )}
