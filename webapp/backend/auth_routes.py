@@ -10,5 +10,5 @@ router = APIRouter(prefix="/auth")
 @router.post("/logout", status_code=204)
 async def logout():
     response = JSONResponse(None, status_code=204)
-    response.delete_cookie("session", path="/kcsp")
+    response.delete_cookie("kcsp_session", path="/kcsp")
     return response

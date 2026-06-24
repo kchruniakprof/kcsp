@@ -72,6 +72,10 @@ def create_app(engine: Optional[Engine] = None,
     app.include_router(chat_router)
     app.include_router(admin_router)
 
+    @app.get("/debug-cookies")
+    def debug_cookies(request: Request) -> dict:
+        return {"cookies": dict(request.cookies), "headers": dict(request.headers)}
+
     @app.get("/health")
     def health(request: Request) -> dict:
         rag_error = getattr(request.app.state, "rag_error", None)
@@ -90,7 +94,7 @@ def create_app(engine: Optional[Engine] = None,
     @app.get("/me")
     def me(request: Request):
         from webapp.backend.auth import get_current_user
-        token = request.cookies.get("session")
+        token = request.cookies.get("kcsp_session")
         if not token:
             raise HTTPException(status_code=401, detail="Not authenticated")
         with Session(_engine) as session:

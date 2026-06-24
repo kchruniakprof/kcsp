@@ -57,7 +57,7 @@ def get_db_session(request: Request):
 def get_current_active_user(request: Request, session: Session = Depends(get_db_session)):
     from webapp.backend.auth import get_current_user
     secret = request.app.state.session_secret
-    token = request.cookies.get("session")
+    token = request.cookies.get("kcsp_session")
     user = get_current_user(session, token, secret)
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")

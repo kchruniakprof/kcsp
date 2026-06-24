@@ -32,7 +32,7 @@ oauth.register(
 def _set_session_cookie(response: RedirectResponse, token: str) -> None:
     is_prod = os.getenv("ENV", "dev") == "prod"
     response.set_cookie(
-        "session", token,
+        "kcsp_session", token,
         httponly=True,
         samesite="lax",
         secure=is_prod,
