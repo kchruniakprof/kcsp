@@ -5,8 +5,10 @@ import TraceDrawer from "./TraceDrawer";
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(BASE + path, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -81,7 +83,7 @@ export default function ChatPage() {
       return;
     }
 
-    const sse = new EventSource(`/chat/${pendingMsgId}/stream`);
+    const sse = new EventSource(`${BASE}/chat/${pendingMsgId}/stream`);
 
     sse.addEventListener("stage", (e: MessageEvent) => {
       try {
@@ -408,7 +410,7 @@ export default function ChatPage() {
           )}
           <button
             onClick={async () => {
-              await fetch("/auth/logout", { method: "POST" });
+              await fetch(`${BASE}/auth/logout`, { method: "POST" });
               window.location.href = "/kcsp/login";
             }}
             style={{

@@ -67,7 +67,7 @@ export default function LoginPage() {
         <button
           type="button"
           onClick={() => {
-            window.location.href = "/auth/google/login";
+            window.location.href = (import.meta.env.BASE_URL.replace(/\/$/, "")) + "/auth/google/login";
           }}
           style={{
             width: "100%",
