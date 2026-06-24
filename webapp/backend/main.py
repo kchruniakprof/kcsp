@@ -107,11 +107,25 @@ def create_app(engine: Optional[Engine] = None,
     app.include_router(google_router)
 
     # static assets (JS/CSS/etc.)
+    # Note: app.mount("/assets", StaticFiles(...)) breaks with root_path set in Starlette 1.x
+    # because get_route_path() strips the wrong prefix. Use explicit routes instead.
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         assets_dir = static_dir / "assets"
+
         if assets_dir.exists():
-            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+            _assets_dir = assets_dir
+
+            @app.get("/assets/{asset_path:path}")
+            async def serve_asset(asset_path: str):
+                file_path = _assets_dir / asset_path
+                try:
+                    file_path.resolve().relative_to(_assets_dir.resolve())
+                except ValueError:
+                    raise HTTPException(status_code=404)
+                if not file_path.is_file():
+                    raise HTTPException(status_code=404)
+                return FileResponse(str(file_path))
 
         # SPA catch-all — serve index.html for all unmatched routes
         index_html = static_dir / "index.html"
