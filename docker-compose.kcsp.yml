@@ -12,6 +12,7 @@ services:
       - .env.kcsp
     networks:
       - dkv_belgium_v3_default
+    command: ["uvicorn", "webapp.backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--root-path", "/kcsp"]
     restart: unless-stopped
 
 volumes:
