@@ -10,7 +10,11 @@ RUN npm run build
 FROM python:3.11-slim AS runtime
 WORKDIR /app
 
-# Install Python deps
+# CPU-only torch first (saves ~1.5 GB vs default CUDA wheel)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining app dependencies
+RUN pip install --no-cache-dir --upgrade pip
 COPY webapp/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 

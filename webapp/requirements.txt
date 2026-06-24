@@ -13,8 +13,8 @@ groq>=0.9
 pandas>=2.0
 numpy>=1.26
 sentence-transformers>=3.0
-torch
 rank-bm25
 scipy
 pyarrow
 uvicorn-worker
+structlog
