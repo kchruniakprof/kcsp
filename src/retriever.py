@@ -82,6 +82,109 @@ class CrossEncoderReranker:
         return [r for _, r in ranked]
 
 
+class JinaAPIReranker:
+    """Reranker via Jina AI /v1/rerank endpoint (jina-reranker-v2-base-multilingual etc.)."""
+
+    def __init__(self, model: str = "jina-reranker-v2-base-multilingual", api_key: str = "") -> None:
+        self._model = model
+        self._api_key = api_key
+
+    def rerank(self, query: str, results: list[RetrievalResult]) -> list[RetrievalResult]:
+        import time, requests
+        docs = [r.heading + " " + r.markdown[:512] for r in results]
+        for attempt in range(6):
+            try:
+                resp = requests.post(
+                    "https://api.jina.ai/v1/rerank",
+                    headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                    json={"model": self._model, "query": query, "documents": docs, "top_n": len(docs)},
+                    timeout=30,
+                )
+                if resp.status_code in (429, 503):
+                    wait = 5 * (2 ** attempt)
+                    _log.info("reranker_rate_limit", status=resp.status_code, attempt=attempt, wait_s=wait)
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                items = resp.json()["results"]
+                indexed = sorted(items, key=lambda x: x["relevance_score"], reverse=True)
+                return [results[item["index"]] for item in indexed]
+            except requests.exceptions.RequestException as exc:
+                if attempt == 5:
+                    raise
+                time.sleep(5 * (2 ** attempt))
+        return results
+
+
+class FireworksReranker:
+    """Reranker via Fireworks AI /v1/rerank (qwen3-reranker-8b). Response uses 'data' field."""
+
+    def __init__(self, model: str = "accounts/fireworks/models/qwen3-reranker-8b", api_key: str = "") -> None:
+        self._model = model
+        self._api_key = api_key
+
+    def rerank(self, query: str, results: list[RetrievalResult]) -> list[RetrievalResult]:
+        import time, requests
+        docs = [r.heading + " " + r.markdown[:512] for r in results]
+        for attempt in range(6):
+            try:
+                resp = requests.post(
+                    "https://api.fireworks.ai/inference/v1/rerank",
+                    headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                    json={"model": self._model, "query": query, "documents": docs, "top_n": len(docs)},
+                    timeout=30,
+                )
+                if resp.status_code in (429, 503):
+                    wait = 5 * (2 ** attempt)
+                    _log.info("reranker_rate_limit", status=resp.status_code, attempt=attempt, wait_s=wait)
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                items = resp.json()["data"]  # Fireworks uses 'data', not 'results'
+                indexed = sorted(items, key=lambda x: x["relevance_score"], reverse=True)
+                return [results[item["index"]] for item in indexed]
+            except requests.exceptions.RequestException as exc:
+                if attempt == 5:
+                    raise
+                time.sleep(5 * (2 ** attempt))
+        return results
+
+
+class CohereAPIReranker:
+    """Reranker via OpenRouter /rerank endpoint (cohere/rerank-4-fast, cohere/rerank-4-pro)."""
+
+    def __init__(self, model: str, api_key: str, base_url: str = "https://openrouter.ai/api/v1") -> None:
+        self._model = model
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
+
+    def rerank(self, query: str, results: list[RetrievalResult]) -> list[RetrievalResult]:
+        import time, requests
+        docs = [r.heading + " " + r.markdown[:512] for r in results]
+        for attempt in range(6):
+            try:
+                resp = requests.post(
+                    f"{self._base_url}/rerank",
+                    headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                    json={"model": self._model, "query": query, "documents": docs, "top_n": len(docs)},
+                    timeout=30,
+                )
+                if resp.status_code == 429 or resp.status_code == 403:
+                    wait = 10 * (2 ** attempt)  # 10, 20, 40, 80, 160s
+                    _log.info("reranker_rate_limit", status=resp.status_code, attempt=attempt, wait_s=wait)
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                items = resp.json()["results"]
+                indexed = sorted(items, key=lambda x: x["relevance_score"], reverse=True)
+                return [results[item["index"]] for item in indexed]
+            except requests.exceptions.RequestException as exc:
+                if attempt == 5:
+                    raise
+                time.sleep(5 * (2 ** attempt))
+        return results  # fallback: original order
+
+
 class Retriever:
     def __init__(
         self,
