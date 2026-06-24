@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  kcsp-app:
+    build:
+      context: .
+      dockerfile: webapp/Dockerfile
+    expose:
+      - "8000"
+    volumes:
+      - kcsp_data:/data
+    env_file:
+      - .env.kcsp
+    networks:
+      - dkv_belgium_v3_default
+    restart: unless-stopped
+
+volumes:
+  kcsp_data:
+
+networks:
+  dkv_belgium_v3_default:
+    external: true
