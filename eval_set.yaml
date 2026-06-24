@@ -1144,6 +1144,9 @@
     - Kosten
     - Schlösser
     - Schlüssel
+    - koszty
+    - zamków
+    - kluczy
   - type: not-icontains
     value: Traceback
 - description: exclusion_query_01_Hausrat_Best

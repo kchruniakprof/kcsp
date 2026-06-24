@@ -107,7 +107,8 @@ def enrich_sections(
             result_df.at[i, "description"] = details.description
             result_df.at[i, "questions"] = details.questions
             result_df.at[i, "topic_tags"] = details.topic_tags
-            keyword_types = list(row.get("section_types") or [])
+            raw_types = row.get("section_types")
+            keyword_types = [] if raw_types is None or (isinstance(raw_types, float) and pd.isna(raw_types)) else list(raw_types)
             llm_types = list(details.section_types or [])
             merged = list(set(keyword_types) | set(llm_types))
             result_df.at[i, "section_types"] = merged if merged else keyword_types

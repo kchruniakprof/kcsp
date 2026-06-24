@@ -29,25 +29,44 @@ load_dotenv(_ROOT / ".env")
 # Lazy RAGAssistant factory — built once per process
 # ---------------------------------------------------------------------------
 
-class _BGE3Embedder:
-    """Wraps BGEM3FlagModel — exposes encode() for dense and encode_sparse() for RRF."""
+class _Qwen3Embedder:
+    """OpenRouter Qwen3-Embedding-8B for dense + BM25 for sparse (RRF-compatible).
 
-    def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
-        from FlagEmbedding import BGEM3FlagModel
-        self._model = BGEM3FlagModel(model_name, use_fp16=True)
+    encode()        → OpenRouter API, 4096-dim L2-normalised vectors
+    encode_sparse() → BM25 query encoding using corpus IDF from bm25_idf.pkl
+    """
+
+    def __init__(self, parquet_dir: Path, api_key: str) -> None:
+        import openai
+        import pickle as _pickle
+        base_url = os.environ.get("EMBED_BASE_URL", "https://api.fireworks.ai/inference/v1")
+        self._model = os.environ.get("EMBED_MODEL", "accounts/fireworks/models/qwen3-embedding-8b")
+        self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        idf_path = parquet_dir / "bm25_idf.pkl"
+        with open(idf_path, "rb") as f:
+            self._idf: dict = _pickle.load(f)
 
     def encode(self, texts: Any, normalize_embeddings: bool = True, **kwargs) -> Any:
         import numpy as np
         if isinstance(texts, str):
             texts = [texts]
-        out = self._model.encode(texts, return_dense=True, return_sparse=False, batch_size=12)
-        return out["dense_vecs"]
+        response = self._client.embeddings.create(
+            model=self._model,
+            input=list(texts),
+            encoding_format="float",
+        )
+        vecs = np.array([e.embedding for e in response.data], dtype=np.float32)
+        if normalize_embeddings:
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1.0, norms)
+            vecs /= norms
+        return vecs
 
-    def encode_sparse(self, texts: Any) -> list:
-        if isinstance(texts, str):
-            texts = [texts]
-        out = self._model.encode(texts, return_dense=False, return_sparse=True, batch_size=12)
-        return out["lexical_weights"]
+    def encode_sparse(self, query: Any) -> dict:
+        from src.bm25_encoder import encode_query_sparse
+        if isinstance(query, list):
+            query = query[0]
+        return encode_query_sparse(str(query), self._idf)
 
 
 @lru_cache(maxsize=1)
@@ -62,7 +81,7 @@ def _get_rag():
     from src.llm_providers import groq_client
     from src.query_expansion import QueryExpansion
     from src.ragassistant import RAGAssistant
-    from src.retriever import CrossEncoderReranker, Retriever
+    from src.retriever import CohereAPIReranker, CrossEncoderReranker, FireworksReranker, JinaAPIReranker, Retriever
 
     import instructor
     from src.model_registry import REGISTRY
@@ -99,9 +118,34 @@ def _get_rag():
         subs_sparse = [s for s, m in zip(subs_sparse_all, subs_mask) if m]
         sparse_embs = secs_sparse + subs_sparse
 
-    embedder = _BGE3Embedder()
+    _key_var = os.environ.get("EMBED_API_KEY_ENV", "FIREWORKS_API_KEY")
+    or_key = os.environ.get(_key_var, "")
+    if not or_key:
+        raise RuntimeError(f"{_key_var} missing from .env")
+    embedder = _Qwen3Embedder(parquet_dir=parquet_dir, api_key=or_key)
+    _reranker_model = os.environ.get("RERANKER_MODEL", "")
+    if os.environ.get("DISABLE_RERANKER", "false").lower() == "true":
+        _reranker = None
+    elif _reranker_model.startswith("jina"):
+        _reranker = JinaAPIReranker(
+            model=_reranker_model,
+            api_key=os.environ.get("JINA_API_KEY", ""),
+        )
+    elif _reranker_model.startswith("accounts/fireworks/"):
+        _reranker = FireworksReranker(
+            model=_reranker_model,
+            api_key=os.environ.get("FIREWORKS_API_KEY", ""),
+        )
+    elif _reranker_model:
+        _reranker = CohereAPIReranker(
+            model=_reranker_model,
+            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+            base_url="https://openrouter.ai/api/v1",
+        )
+    else:
+        _reranker = CrossEncoderReranker()
     retriever = Retriever(sections=sections, embedder=embedder, sec_embs=sec_embs,
-                          sparse_embs=sparse_embs, reranker=CrossEncoderReranker())
+                          sparse_embs=sparse_embs, reranker=_reranker)
 
     enable_ensemble = os.environ.get("ENABLE_ENSEMBLE", "false").lower() == "true"
     ensemble_critic = (
@@ -114,7 +158,7 @@ def _get_rag():
         retriever=retriever,
         generator=Generator(client=groq_client_raw),
         critic=Critic(client=instructor_client, model=REGISTRY["critic"], _wrap_instructor=False),
-        top_k=5,
+        top_k=10,
         enable_cross_sell=True,
         documents_df=docs_df,
         sections_df=secs_df,

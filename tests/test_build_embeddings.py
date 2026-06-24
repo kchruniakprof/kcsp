@@ -1,4 +1,4 @@
-"""Tests for build_embeddings — TDD C1 (BGE-M3 mocked)."""
+"""Tests for build_embeddings — E1 (Qwen3-Embedding-8B via OpenRouter, mocked)."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -62,9 +62,9 @@ def test_embed_text_no_placeholder_for_missing_fields():
     assert "null" not in text
 
 
-def test_embed_text_markdown_truncated_at_400():
+def test_embed_text_markdown_truncated_at_2500():
     from src.build_embeddings import _embed_text
-    long_md = "X" * 600
+    long_md = "X" * 3000
     row = {
         "heading": "§D",
         "title": "T",
@@ -73,9 +73,10 @@ def test_embed_text_markdown_truncated_at_400():
         "markdown": long_md,
     }
     text = _embed_text(row)
-    # The markdown portion must be exactly 400 chars
-    assert "X" * 400 in text
-    assert "X" * 401 not in text
+    # The markdown portion must be capped at 2500 chars (widened from 400 to
+    # surface facts deep in medium-sized retrieval units)
+    assert "X" * 2500 in text
+    assert "X" * 2501 not in text
 
 
 def test_embed_text_short_markdown_uses_full():
@@ -120,7 +121,10 @@ def test_embed_text_newline_separator():
     assert "\n" in text
 
 
-# ── build_embeddings integration (mocked BGE-M3) ─────────────────────────────
+# ── build_embeddings integration (mocked OpenRouter + BM25) ──────────────────
+
+_FAKE_DIM = 4096
+
 
 def _make_enriched_df():
     return pd.DataFrame([
@@ -141,16 +145,17 @@ def _make_enriched_df():
     ])
 
 
+def _fake_encode_batch(client, texts: list[str]) -> list[list[float]]:
+    """Return unit-normalised fake 4096-dim vectors."""
+    n = len(texts)
+    vecs = np.random.rand(n, _FAKE_DIM).astype("float32")
+    vecs /= np.linalg.norm(vecs, axis=1, keepdims=True)
+    return vecs.tolist()
+
+
 def test_build_embeddings_importable():
     from src.build_embeddings import build_embeddings
     assert build_embeddings is not None
-
-
-def _fake_model_output(n: int):
-    return {
-        "dense_vecs": np.random.rand(n, 1024).astype("float32"),
-        "lexical_weights": [{42: 0.5} for _ in range(n)],
-    }
 
 
 def test_build_embeddings_adds_embedding_column(tmp_path):
@@ -158,10 +163,8 @@ def test_build_embeddings_adds_embedding_column(tmp_path):
     df = _make_enriched_df()
     df.to_parquet(tmp_path / "sections.parquet", index=False)
 
-    fake_model = MagicMock()
-    fake_model.encode.return_value = _fake_model_output(1)  # 1 retrieval unit
-
-    with patch("src.build_embeddings._load_model", return_value=fake_model):
+    with patch("src.build_embeddings._openrouter_client", return_value=MagicMock()), \
+         patch("src.build_embeddings._encode_batch", side_effect=_fake_encode_batch):
         build_embeddings(parquet_dir=tmp_path, validate=False)
 
     out = pd.read_parquet(tmp_path / "sections.parquet")
@@ -169,16 +172,14 @@ def test_build_embeddings_adds_embedding_column(tmp_path):
 
 
 def test_build_embeddings_saves_sparse_pkl(tmp_path):
-    """D3: build_embeddings must save {stem}_sparse.pkl next to the parquet."""
+    """E1: build_embeddings must save {stem}_sparse.pkl next to the parquet."""
     from src.build_embeddings import build_embeddings
     import pickle
     df = _make_enriched_df()
     df.to_parquet(tmp_path / "sections.parquet", index=False)
 
-    fake_model = MagicMock()
-    fake_model.encode.return_value = _fake_model_output(1)
-
-    with patch("src.build_embeddings._load_model", return_value=fake_model):
+    with patch("src.build_embeddings._openrouter_client", return_value=MagicMock()), \
+         patch("src.build_embeddings._encode_batch", side_effect=_fake_encode_batch):
         build_embeddings(parquet_dir=tmp_path, validate=False)
 
     sparse_path = tmp_path / "sections_sparse.pkl"
@@ -194,10 +195,8 @@ def test_l1_parent_has_no_embedding(tmp_path):
     df = _make_enriched_df()
     df.to_parquet(tmp_path / "sections.parquet", index=False)
 
-    fake_model = MagicMock()
-    fake_model.encode.return_value = _fake_model_output(1)
-
-    with patch("src.build_embeddings._load_model", return_value=fake_model):
+    with patch("src.build_embeddings._openrouter_client", return_value=MagicMock()), \
+         patch("src.build_embeddings._encode_batch", side_effect=_fake_encode_batch):
         build_embeddings(parquet_dir=tmp_path, validate=False)
 
     out = pd.read_parquet(tmp_path / "sections.parquet")
@@ -206,16 +205,14 @@ def test_l1_parent_has_no_embedding(tmp_path):
 
 
 def test_d3_sparse_pkl_retrieval_unit_has_weights(tmp_path):
-    """D3: sparse pkl — retrieval-unit rows must have non-None sparse dicts."""
+    """E1: sparse pkl — retrieval-unit rows must have non-None BM25 dicts."""
     from src.build_embeddings import build_embeddings
     import pickle
     df = _make_enriched_df()
     df.to_parquet(tmp_path / "sections.parquet", index=False)
 
-    fake_model = MagicMock()
-    fake_model.encode.return_value = _fake_model_output(1)
-
-    with patch("src.build_embeddings._load_model", return_value=fake_model):
+    with patch("src.build_embeddings._openrouter_client", return_value=MagicMock()), \
+         patch("src.build_embeddings._encode_batch", side_effect=_fake_encode_batch):
         build_embeddings(parquet_dir=tmp_path, validate=False)
 
     with open(tmp_path / "sections_sparse.pkl", "rb") as f:
