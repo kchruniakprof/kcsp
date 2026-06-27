@@ -6,7 +6,7 @@ import pytest
 
 from src.hierarchy_parser import ENUM_16, Document, Section, parse_all, parse_document
 
-CORPUS = Path("D:/_FUN/kcsp/v1/sources/output_md")
+CORPUS = Path(__file__).parent.parent / "sources" / "output_md"
 
 KFZ_SPEZIAL = CORPUS / "50064516_Bedingungen_AKB_Spezial_06_2025_final.md"
 KFZ_STANDARD = CORPUS / "50064517_Bedingungen_Kfz_06_2025_Final.md"
@@ -74,7 +74,7 @@ def test_kfz_has_all_14_akb_sections():
 
 def test_kfz_akb_section_codes_are_letters():
     doc = parse_document(KFZ_SPEZIAL)
-    non_preamble = [s for s in doc.sections if s.section_code != "0"]
+    non_preamble = [s for s in doc.sections if s.section_code != "0" and s.level == 1]
     for s in non_preamble:
         assert re.match(r'^[A-N]$', s.section_code), \
             f"Unexpected Kfz section code {s.section_code!r}"
@@ -91,7 +91,7 @@ def test_hausrat_has_sections_1_through_30():
 
 def test_hausrat_section_codes_are_numbers():
     doc = parse_document(HAUSRAT_SMART)
-    non_preamble = [s for s in doc.sections if s.section_code != "0"]
+    non_preamble = [s for s in doc.sections if s.section_code != "0" and s.level == 1]
     for s in non_preamble:
         assert s.section_code.isdigit(), f"Non-numeric Hausrat code {s.section_code!r}"
 

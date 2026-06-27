@@ -32,7 +32,7 @@ def make_client_with_active_user():
         u = User(email="user@test.com", name="Test User", role="user", status="active")
         s.add(u); s.commit(); s.refresh(u)
         token = make_session_token(u.id, "test-secret-32chars-padding!!")
-    client.cookies.set("session", token)
+    client.cookies.set("kcsp_session", token)
     return client
 
 def test_create_and_list_threads():

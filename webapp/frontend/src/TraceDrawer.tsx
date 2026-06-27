@@ -12,26 +12,35 @@ interface SourceChunk {
   score: number;
 }
 
-interface QueryExpansionDetail {
+interface StepMeta {
+  model: string | null;
+  tokens_prompt: number | null;
+  tokens_completion: number | null;
+  cost_eur: number | null;
+  duration_ms: number | null;
+}
+
+interface QueryExpansionDetail extends StepMeta {
   intent: string;
+  mode?: string | null;
+  sparte_hints?: string[];
   paraphrases: string[];
   domain_terms: string[];
   sparse_hints?: string[];
   section_types: string[];
   confidence: number | null;
   chain_of_thought: string[];
+  step?: StepMeta | null;
+  detected_tarif?: string | null;
+  doc_filter_active?: boolean;
 }
 
-interface GeneratorDetail {
-  model: string;
-  tokens_prompt: number;
-  tokens_completion: number;
-  duration_ms: number;
+interface GeneratorDetail extends StepMeta {
   confidence: number | null;
   chain_of_thought: string[];
 }
 
-interface CriticDetail {
+interface CriticDetail extends StepMeta {
   verdict: string | null;
   confidence: number | null;
   reasoning: string[];
@@ -181,6 +190,30 @@ function StatBox({ label, value, highlight }: { label: string; value: string; hi
   );
 }
 
+// Step meta bar — model · tokens · cost · duration
+function StepMetaBar({ s }: { s: StepMeta | null | undefined }) {
+  if (!s) return null;
+  const parts: string[] = [];
+  if (s.model) parts.push(s.model);
+  if (s.tokens_prompt != null && s.tokens_completion != null)
+    parts.push(`${s.tokens_prompt}+${s.tokens_completion} tok`);
+  if (s.cost_eur != null && s.cost_eur > 0) parts.push(fmtEur(s.cost_eur));
+  if (s.duration_ms != null) parts.push(`${s.duration_ms} ms`);
+  if (parts.length === 0) return null;
+  return (
+    <div style={{
+      padding: "0.25rem 0.6rem",
+      background: "#f0f0f0",
+      borderBottom: "1px solid #e8e8e8",
+      fontSize: "0.68rem",
+      color: "#666",
+      fontFamily: "monospace",
+    }}>
+      {parts.join(" · ")}
+    </div>
+  );
+}
+
 // Stage block header
 function StageHeader({ label, meta }: { label: string; meta?: string }) {
   return (
@@ -213,7 +246,8 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
         meta={detail.confidence != null ? `${(detail.confidence * 100).toFixed(0)}% confidence` : undefined}
       />
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
-        {/* Intent + section types */}
+        <StepMetaBar s={detail.step} />
+        {/* Intent + mode + section types */}
         <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", display: "flex", flexWrap: "wrap", gap: "0.3rem", alignItems: "center" }}>
           <span style={{
             padding: "0.15rem 0.5rem", borderRadius: 3,
@@ -222,6 +256,16 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
           }}>
             {detail.intent}
           </span>
+          {detail.mode && (
+            <span style={{
+              padding: "0.15rem 0.45rem", borderRadius: 3,
+              background: detail.mode === "COMPARE" ? "#6c3483" : "#555",
+              color: "#fff",
+              fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.03em",
+            }}>
+              {detail.mode}
+            </span>
+          )}
           {detail.section_types.map((s, i) => (
             <span key={i} style={{
               padding: "0.15rem 0.45rem", borderRadius: 3,
@@ -232,6 +276,50 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
             </span>
           ))}
         </div>
+
+        {/* Sparte hints + DocFilter */}
+        {((detail.sparte_hints && detail.sparte_hints.length > 0) || detail.detected_tarif || detail.doc_filter_active != null) && (
+          <div style={{ padding: "0.35rem 0.6rem", background: "#fff", borderTop: "1px solid #e8e8e8", display: "flex", flexWrap: "wrap", gap: "0.25rem", alignItems: "center" }}>
+            {detail.sparte_hints && detail.sparte_hints.length > 0 && (
+              <>
+                <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#555", marginRight: "0.1rem" }}>Sparte:</span>
+                {detail.sparte_hints.map((h, i) => (
+                  <span key={i} style={{
+                    padding: "0.1rem 0.4rem", borderRadius: 3,
+                    background: "#fdebd0", color: "#784212",
+                    fontSize: "0.7rem", fontWeight: 600,
+                  }}>
+                    {h}
+                  </span>
+                ))}
+              </>
+            )}
+            {detail.detected_tarif && (
+              <>
+                <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#555", marginLeft: detail.sparte_hints && detail.sparte_hints.length > 0 ? "0.5rem" : 0, marginRight: "0.1rem" }}>Tarif:</span>
+                <span style={{
+                  padding: "0.1rem 0.4rem", borderRadius: 3,
+                  background: "var(--ergo-primary)", color: "#fff",
+                  fontSize: "0.7rem", fontWeight: 600,
+                }}>
+                  {detail.detected_tarif}
+                </span>
+              </>
+            )}
+            {detail.doc_filter_active != null && (
+              <span style={{
+                marginLeft: "auto",
+                padding: "0.1rem 0.4rem", borderRadius: 3,
+                background: detail.doc_filter_active ? "#eafaf1" : "#f9f9f9",
+                color: detail.doc_filter_active ? "#1e8449" : "#999",
+                fontSize: "0.68rem", fontWeight: 600,
+                border: `1px solid ${detail.doc_filter_active ? "#a9dfbf" : "#ddd"}`,
+              }}>
+                DocFilter {detail.doc_filter_active ? "ON" : "OFF"}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Paraphrases */}
         {detail.paraphrases.length > 0 && (
@@ -356,14 +444,12 @@ function GeneratorBlock({ detail }: { detail: GeneratorDetail }) {
         meta={detail.duration_ms ? `${detail.duration_ms} ms` : undefined}
       />
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
-        <div style={{ padding: "0.45rem 0.75rem", background: "#fafafa" }}>
-          <div style={{ color: "#888", fontSize: "0.75rem" }}>
-            {detail.model}
-            {detail.tokens_prompt != null && ` · ${detail.tokens_prompt}+${detail.tokens_completion} tok`}
-            {detail.duration_ms != null && ` · ${detail.duration_ms} ms`}
-            {detail.confidence != null && ` · ${(detail.confidence * 100).toFixed(0)}% confidence`}
+        <StepMetaBar s={detail} />
+        {detail.confidence != null && (
+          <div style={{ padding: "0.3rem 0.6rem", background: "#fafafa", fontSize: "0.72rem", color: "#888" }}>
+            {(detail.confidence * 100).toFixed(0)}% confidence
           </div>
-        </div>
+        )}
 
         {cot.length > 0 && (
           <details style={{ borderTop: "1px solid #e8e8e8" }}>
@@ -418,6 +504,7 @@ function CriticBlock({ detail }: { detail: CriticDetail }) {
       </div>
 
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
+        <StepMetaBar s={detail} />
         {/* Verdict badge */}
         <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={{

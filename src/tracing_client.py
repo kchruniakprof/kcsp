@@ -1,4 +1,4 @@
-"""TracingClient: instructor client wrapper that records per-call cost into TraceCollector."""
+"""TracingClient: wraps instructor/raw client, records per-call cost into TraceCollector."""
 from __future__ import annotations
 
 import time
@@ -19,64 +19,86 @@ _EUR_RATE = 0.92  # USD→EUR
 
 
 def _calc_cost(model_id: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Return cost in EUR for the given token counts."""
     if prompt_tokens == 0 and completion_tokens == 0:
         return 0.0
-    rates = _PRICING.get(model_id)
-    if rates is None:
-        # Unknown model: use a conservative default (Groq cheapest tier)
-        input_rate, output_rate = 0.046, 0.046
-    else:
-        input_rate, output_rate = rates
+    input_rate, output_rate = _PRICING.get(model_id, (0.046, 0.046))
     return (prompt_tokens * input_rate + completion_tokens * output_rate) / 1_000_000
 
 
+def _record(name: str, model_id: str, provider: str, usage: Any, duration_ms: int) -> None:
+    collector = get_active_collector()
+    if collector is None:
+        return
+    pt = getattr(usage, "prompt_tokens", 0) or 0
+    ct = getattr(usage, "completion_tokens", 0) or 0
+    collector.add_step(StepCost(
+        name=name,
+        model_id=model_id,
+        provider=provider,
+        prompt_tokens=pt,
+        completion_tokens=ct,
+        cost_eur=_calc_cost(model_id, pt, ct),
+        duration_ms=duration_ms,
+    ))
+
+
 class TracingClient:
-    """Drop-in replacement for instructor client. Intercepts create_with_completion."""
+    """
+    Transparent proxy around an instructor or raw OpenAI/Groq client.
+    Intercepts .chat.completions.create() and .create_with_completion() to record
+    timing + token cost into the thread-local TraceCollector.
+
+    Wrapping is safe on the lru-cached RAG singleton: the TracingClient is stateless
+    per-call — it looks up the collector via thread-local on each invocation.
+    """
 
     def __init__(
         self,
-        instructor_client: Any,
+        client: Any,
         model_id: str,
         provider: str,
         name: str,
     ) -> None:
-        self._client = instructor_client
+        self._client = client
         self._model_id = model_id
         self._provider = provider
         self._name = name
 
+    @property
     def chat(self) -> "TracingClient":
-        return self  # proxy .chat.completions
+        return self
 
     @property
     def completions(self) -> "TracingClient":
         return self
 
+    def create(self, *args: Any, **kwargs: Any) -> Any:
+        """Intercept .chat.completions.create(). Works for both instructor and raw clients."""
+        # Use the model kwarg if provided (e.g. Generator switches models per call)
+        call_model = kwargs.get("model") or self._model_id
+        t0 = time.perf_counter()
+
+        inner = self._client.chat.completions
+        # Instructor clients expose create_with_completion — use it to get usage
+        if hasattr(inner, "create_with_completion"):
+            result, completion = inner.create_with_completion(*args, **kwargs)
+            usage = getattr(completion, "usage", None)
+        else:
+            result = inner.create(*args, **kwargs)
+            usage = getattr(result, "usage", None)
+
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        _record(self._name, call_model, self._provider, usage, duration_ms)
+        return result
+
     def create_with_completion(self, *args: Any, **kwargs: Any) -> tuple[Any, Any]:
+        """Intercept .chat.completions.create_with_completion() (instructor pattern)."""
+        call_model = kwargs.get("model") or self._model_id
         t0 = time.perf_counter()
         result, completion = self._client.chat.completions.create_with_completion(
             *args, **kwargs
         )
         duration_ms = int((time.perf_counter() - t0) * 1000)
-
         usage = getattr(completion, "usage", None)
-        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
-        cost_eur = _calc_cost(self._model_id, prompt_tokens, completion_tokens)
-
-        collector = get_active_collector()
-        if collector is not None:
-            collector.add_step(
-                StepCost(
-                    name=self._name,
-                    model_id=self._model_id,
-                    provider=self._provider,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    cost_eur=cost_eur,
-                    duration_ms=duration_ms,
-                )
-            )
-
+        _record(self._name, call_model, self._provider, usage, duration_ms)
         return result, completion

@@ -14,7 +14,7 @@ def make_admin_client():
         admin = User(email="admin@test.com", name="Admin", role="admin", status="active")
         s.add(admin); s.commit(); s.refresh(admin)
         token = make_session_token(admin.id, "test-secret-32chars-padding!!")
-    client.cookies.set("session", token)
+    client.cookies.set("kcsp_session", token)
     return client, engine
 
 def test_list_users():

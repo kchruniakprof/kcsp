@@ -279,20 +279,38 @@ def run_rag_in_background(
                 return d
 
             # kcsp FinalAnswer fields vs dkv audit_metadata
+            _gen_step = answer.audit_metadata.get("generator_step") or {}
+            generator_detail = {
+                "generator_confidence": answer.audit_metadata.get("generator_confidence"),
+                "generator_cot": answer.audit_metadata.get("generator_cot"),
+                "model": _gen_step.get("model"),
+                "tokens_prompt": _gen_step.get("tokens_prompt"),
+                "tokens_completion": _gen_step.get("tokens_completion"),
+                "cost_eur": _gen_step.get("cost_eur"),
+                "duration_ms": _gen_step.get("duration_ms"),
+            }
+            _critic_step = answer.audit_metadata.get("critic_step") or {}
+            critic_step_detail = {
+                "model": _critic_step.get("model"),
+                "tokens_prompt": _critic_step.get("tokens_prompt"),
+                "tokens_completion": _critic_step.get("tokens_completion"),
+                "cost_eur": _critic_step.get("cost_eur"),
+                "duration_ms": _critic_step.get("duration_ms"),
+            }
             critic_detail = {
                 k: answer.audit_metadata.get(k)
                 for k in ("critic_verdict", "critic_reasoning", "critic_cot",
                           "critic_confidence", "abstain_reason", "retried",
                           "used_ensemble", "early_abstain")
             }
+            critic_detail.update(critic_step_detail)
             selector_detail = {
                 k: answer.audit_metadata.get(k)
                 for k in ("selector_confidence", "selector_cot")
             }
-            pruning_detail = answer.audit_metadata.get("pruning_detail") or {}
-            generator_detail = {
-                k: answer.audit_metadata.get(k)
-                for k in ("generator_confidence", "generator_cot")
+            pruning_detail = {
+                **(answer.audit_metadata.get("pruning_detail") or {}),
+                "detected_tarif": answer.audit_metadata.get("detected_tarif"),
             }
             steps_list = [_step_dict(s) for s in collector.steps]
             chunks_list = answer.audit_metadata.get("selected_chunks") or []
@@ -418,20 +436,49 @@ def _build_trace_payload(message_id: int, session: Session) -> dict:
     trace = session.exec(select(Trace).where(Trace.message_id == message_id)).first()
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not available yet")
+
+    raw_critic = json.loads(trace.critic_detail_json or "null") or {}
+    pruning = json.loads(trace.pruning_detail_json or "{}") or {}
+    raw_gen = json.loads(trace.generator_detail_json or "null") or {}
+    qe = json.loads(trace.query_expansion_detail_json or "null")
+
+    critic = {
+        "verdict": raw_critic.get("critic_verdict"),
+        "confidence": raw_critic.get("critic_confidence"),
+        "reasoning": raw_critic.get("critic_reasoning") or [],
+        "chain_of_thought": raw_critic.get("critic_cot") or [],
+        "retried": raw_critic.get("retried"),
+        "used_ensemble": raw_critic.get("used_ensemble"),
+        "model": raw_critic.get("model"),
+        "tokens_prompt": raw_critic.get("tokens_prompt"),
+        "tokens_completion": raw_critic.get("tokens_completion"),
+        "cost_eur": raw_critic.get("cost_eur"),
+        "duration_ms": raw_critic.get("duration_ms"),
+    } if raw_critic else None
+
+    retrieval = {
+        "detected_tarif": pruning.get("detected_tarif"),
+        "chunks": json.loads(trace.chunks_json or "[]"),
+    }
+
+    generator = {
+        "model": raw_gen.get("model"),
+        "tokens_prompt": raw_gen.get("tokens_prompt"),
+        "tokens_completion": raw_gen.get("tokens_completion"),
+        "cost_eur": raw_gen.get("cost_eur"),
+        "duration_ms": raw_gen.get("duration_ms"),
+        "confidence": raw_gen.get("generator_confidence"),
+        "chain_of_thought": raw_gen.get("generator_cot") or [],
+    } if raw_gen else None
+
     return {
-        "steps": json.loads(trace.steps_json or "[]"),
         "total_cost_eur": trace.total_cost_eur,
         "total_duration_ms": trace.total_duration_ms,
-        "retrieved_doc_ids": json.loads(trace.retrieved_doc_ids or "[]"),
-        "used_brute_force": trace.used_brute_force,
         "abstained": trace.abstained,
-        "critic_detail": json.loads(trace.critic_detail_json or "null"),
-        "chunks": json.loads(trace.chunks_json or "[]"),
-        "cited_sources": json.loads(trace.cited_sources_json or "[]"),
-        "query_expansion_detail": json.loads(trace.query_expansion_detail_json or "null"),
-        "selector_detail": json.loads(trace.selector_detail_json or "null"),
-        "pruning_detail": json.loads(trace.pruning_detail_json or "null"),
-        "generator_detail": json.loads(trace.generator_detail_json or "null"),
+        "query_expansion": qe,
+        "retrieval": retrieval,
+        "generator": generator,
+        "critic": critic,
     }
 
 

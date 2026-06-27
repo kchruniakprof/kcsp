@@ -5,8 +5,8 @@ from pathlib import Path
 
 from src.build_parquets import build
 
-CORPUS = Path("D:/_FUN/kcsp/v1/sources/output_md")
-OUTPUT = Path("D:/_FUN/kcsp/v1/parquet")
+CORPUS = Path(__file__).parent.parent / "sources" / "output_md"
+OUTPUT = Path(__file__).parent.parent / "parquet"
 
 
 @pytest.fixture(scope="module")
