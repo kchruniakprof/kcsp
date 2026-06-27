@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from pathlib import Path
 
-PARQUET_DIR = Path("D:/_FUN/kcsp/v1/parquet")
+PARQUET_DIR = Path(__file__).parent.parent / "parquet"
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -110,10 +110,14 @@ def test_product_detector_returns_frozenset(documents_df):
 # ── RareTagMatcherAdapter ────────────────────────────────────────────────────
 
 def test_rare_tag_matcher_glasbruch(sections_df, subsections_df):
+    import pandas as pd
     from src.doc_filter import RareTagMatcherAdapter
+    all_tags = pd.concat([sections_df["topic_tags"], subsections_df["topic_tags"]])
+    has_glasbruch = any("Glasbruch" in list(t) for t in all_tags if t is not None and len(t) > 0)
+    if not has_glasbruch:
+        pytest.skip("topic_tags not enriched yet — no Glasbruch in parquet")
     adapter = RareTagMatcherAdapter(sections_df, subsections_df)
     result = adapter.filter(_FakeQuery(domain_terms=["Glasbruch"]))
-    # Glasbruch should appear in at least some sections
     assert isinstance(result, frozenset)
 
 

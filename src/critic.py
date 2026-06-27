@@ -32,6 +32,7 @@ class CriticResult:
     answer: Optional[str] = None
     retried: bool = False
     used_ensemble: bool = False
+    chain_of_thought: list = field(default_factory=list)
 
 
 class CriticOutput(BaseModel):
@@ -149,6 +150,7 @@ class Critic:
             reason=reason,
             confidence=output.confidence_score or 0.0,
             answer=answer if verdict != CriticVerdict.ABSTAIN else None,
+            chain_of_thought=list(output.chain_of_thought or []),
         )
         _log.info("step_done", step="critic", verdict=result.verdict.value,
                   confidence=result.confidence, reason=result.reason)
@@ -237,6 +239,7 @@ def _maybe_ensemble(
             answer=current_answer,
             retried=retried,
             used_ensemble=False,
+            chain_of_thought=list(primary_result.chain_of_thought or []),
         )
     try:
         ens = ensemble_critic.evaluate(query, current_answer, sections)

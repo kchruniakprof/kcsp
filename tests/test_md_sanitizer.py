@@ -121,7 +121,7 @@ def test_real_file_no_ligature_artifacts(tmp_path):
     import re
     from pathlib import Path
 
-    kfz_file = Path("D:/_FUN/kcsp/v1/sources/output_md/50064516_Bedingungen_AKB_Spezial_06_2025_final.md")
+    kfz_file = Path(__file__).parent.parent / "sources" / "output_md" / "50064516_Bedingungen_AKB_Spezial_06_2025_final.md"
     raw = kfz_file.read_text(encoding="utf-8")
     result = sanitize(raw)
 
@@ -138,7 +138,7 @@ def test_real_file_headers_intact():
     """Kfz headers like '## C Kfz-Haftpflicht' must survive sanitization."""
     from pathlib import Path
 
-    kfz_file = Path("D:/_FUN/kcsp/v1/sources/output_md/50064516_Bedingungen_AKB_Spezial_06_2025_final.md")
+    kfz_file = Path(__file__).parent.parent / "sources" / "output_md" / "50064516_Bedingungen_AKB_Spezial_06_2025_final.md"
     raw = kfz_file.read_text(encoding="utf-8")
     result = sanitize(raw)
 

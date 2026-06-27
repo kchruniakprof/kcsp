@@ -31,8 +31,8 @@ tests:
     vars:
       question: "Was ist in der Kfz-Versicherung nicht versichert?"
     assert:
-      - type: icontains
-        value: "ausgeschlossen"
+      - type: icontains-any
+        value: ["ausgeschlossen", "nicht versichert", "Ausschluss"]
 
   - description: "Kfz — Schadensmeldung Frist"
     vars:

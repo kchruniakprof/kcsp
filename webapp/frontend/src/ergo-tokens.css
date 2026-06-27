@@ -1,0 +1,20 @@
+:root {
+  --ergo-primary: #EE0138;
+  --ergo-primary-dark: #B8001A;
+  --ergo-neutral-100: #F5F5F5;
+  --ergo-neutral-200: #E0E0E0;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Mulish', sans-serif; }
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ergo-neutral-200);
+  border-top-color: var(--ergo-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

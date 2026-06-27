@@ -31,3 +31,7 @@ Thumbs.db
 
 # Claude local settings
 .claude/settings.local.json
+
+# Frontend
+webapp/frontend/node_modules/
+webapp/backend/static/
