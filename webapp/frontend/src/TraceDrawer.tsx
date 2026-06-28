@@ -164,7 +164,11 @@ export default function TraceDrawer({ messageId, onClose, basePath = "" }: Props
 
             {/* Stage 3: Generator */}
             {data.generator && (
-              <GeneratorBlock detail={data.generator} />
+              <GeneratorBlock
+                detail={data.generator}
+                citedSources={data.cited_sources ?? []}
+                chunks={data.retrieval?.chunks ?? []}
+              />
             )}
 
             {/* Stage 4: Critic */}
@@ -412,41 +416,49 @@ function RetrievalBlock({ detail, citedSources }: { detail: RetrievalDetail; cit
 }
 
 // Stage 3: Generator
-function GeneratorBlock({ detail }: { detail: GeneratorDetail }) {
+function GeneratorBlock({ detail, citedSources, chunks }: {
+  detail: GeneratorDetail;
+  citedSources: string[];
+  chunks: SourceChunk[];
+}) {
   const cot = detail.chain_of_thought ?? [];
+  const citedSet = new Set(citedSources.map(String));
+  const citedChunks = chunks.filter(c =>
+    citedSet.has(String(c.section_id)) || citedSet.has(c.chunk_id)
+  );
+
+  const metaParts = [
+    detail.model ?? "—",
+    detail.tokens_prompt != null ? `${detail.tokens_prompt}+${detail.tokens_completion} tok` : null,
+    detail.duration_ms != null ? `${detail.duration_ms} ms` : null,
+    detail.cost_eur != null ? fmtEur(detail.cost_eur) : null,
+    detail.confidence != null ? `${(detail.confidence * 100).toFixed(0)}% conf` : null,
+  ].filter(Boolean).join(" · ");
+
+  const justification = cot.length > 0 ? cot : citedChunks.map(c => `${c.breadcrumb} — ${c.heading}`);
+
   return (
     <div style={{ marginBottom: "1rem" }}>
-      <StageHeader
-        label="Generator"
-        meta={detail.duration_ms ? `${detail.duration_ms} ms` : undefined}
-      />
+      <StageHeader label="Generator" meta={detail.duration_ms ? `${detail.duration_ms} ms` : undefined} />
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
-        <div style={{ padding: "0.45rem 0.75rem", background: "#fafafa" }}>
-          <div style={{ color: "#888", fontSize: "0.75rem" }}>
-            {detail.model}
-            {detail.tokens_prompt != null && ` · ${detail.tokens_prompt}+${detail.tokens_completion} tok`}
-            {detail.duration_ms != null && ` · ${detail.duration_ms} ms`}
-            {detail.cost_eur != null && ` · ${fmtEur(detail.cost_eur)}`}
-            {detail.confidence != null && ` · ${(detail.confidence * 100).toFixed(0)}% confidence`}
-          </div>
+        {/* Model / token stats */}
+        <div style={{ padding: "0.35rem 0.6rem", background: "#f5f5f5", borderBottom: "1px solid #e8e8e8" }}>
+          <span style={{ color: "#888", fontSize: "0.72rem" }}>{metaParts}</span>
         </div>
 
-        {cot.length > 0 && (
-          <details style={{ borderTop: "1px solid #e8e8e8" }}>
-            <summary style={{
-              fontSize: "0.72rem", cursor: "pointer", color: "#999",
-              padding: "0.25rem 0.6rem", background: "#f5f5f5", listStyle: "none",
-            }}>
-              Chain of thought ({cot.length})
-            </summary>
-            <div style={{ padding: "0.4rem 0.6rem", background: "#f0faf4" }}>
-              {cot.map((c, i) => (
-                <div key={i} style={{ fontSize: "0.74rem", color: "#1a4a2a", marginBottom: "0.15rem" }}>
-                  {i + 1}. {c}
-                </div>
-              ))}
+        {/* Justification */}
+        {justification.length > 0 && (
+          <div style={{ padding: "0.4rem 0.6rem", background: "#fff" }}>
+            <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "#555", marginBottom: "0.25rem" }}>
+              Justification {cot.length === 0 && <span style={{ fontWeight: 400, color: "#999" }}>(cited sources)</span>}
             </div>
-          </details>
+            {justification.map((line, i) => (
+              <div key={i} style={{ fontSize: "0.74rem", color: "#333", marginBottom: "0.15rem", display: "flex", gap: "0.35rem" }}>
+                <span style={{ color: "var(--ergo-primary)", fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                <span>{line}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
