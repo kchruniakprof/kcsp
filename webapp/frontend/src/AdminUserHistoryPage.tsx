@@ -15,7 +15,7 @@ interface HistoryItem {
   thread_title: string | null;
 }
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, ""); // "/kcsp"
 
 async function api<T>(path: string): Promise<T> {
   const res = await fetch(BASE + path);
@@ -196,7 +196,7 @@ export default function AdminUserHistoryPage() {
         {traceMessageId !== null && (
           <TraceDrawer
             messageId={traceMessageId}
-            basePath={`${BASE}/admin`}
+            basePath="/admin"
             onClose={() => setTraceMessageId(null)}
           />
         )}

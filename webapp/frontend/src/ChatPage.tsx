@@ -5,7 +5,7 @@ import TraceDrawer from "./TraceDrawer";
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, ""); // "/kcsp"
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
@@ -410,7 +410,7 @@ export default function ChatPage() {
           )}
           <button
             onClick={async () => {
-              await fetch(`${BASE}/auth/logout`, { method: "POST" });
+              await fetch("/kcsp/auth/logout", { method: "POST" });
               window.location.href = "/kcsp/login";
             }}
             style={{
@@ -523,8 +523,8 @@ export default function ChatPage() {
         {traceMessageId !== null && (
           <TraceDrawer
             messageId={traceMessageId}
-            basePath={BASE}
             onClose={() => setTraceMessageId(null)}
+            basePath="/kcsp"
           />
         )}
       </div>

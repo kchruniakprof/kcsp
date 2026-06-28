@@ -471,10 +471,18 @@ def _build_trace_payload(message_id: int, session: Session) -> dict:
         "chain_of_thought": raw_gen.get("generator_cot") or [],
     } if raw_gen else None
 
+    # Flatten QueryExpansion step stats to top level (stored nested under "step")
+    if qe and isinstance(qe, dict):
+        step = qe.pop("step", None) or {}
+        for key in ("model", "tokens_prompt", "tokens_completion", "cost_eur", "duration_ms"):
+            if qe.get(key) is None:
+                qe[key] = step.get(key)
+
     return {
         "total_cost_eur": trace.total_cost_eur,
         "total_duration_ms": trace.total_duration_ms,
         "abstained": trace.abstained,
+        "cited_sources": json.loads(trace.cited_sources_json or "[]"),
         "query_expansion": qe,
         "retrieval": retrieval,
         "generator": generator,
