@@ -4,8 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 // ── API ─────────────────────────────────────────────────────────────────────
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, ""); // "/kcsp"
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(BASE + path, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
@@ -106,7 +108,7 @@ export default function AdminPage() {
           <span style={{ color: "rgba(255,255,255,0.7)", fontSize: "0.8rem" }}>{me?.email}</span>
           <button
             type="button"
-            onClick={() => fetch("/auth/logout", { method: "POST" }).then(() => { window.location.href = "/kcsp/login"; })}
+            onClick={() => fetch("/kcsp/auth/logout", { method: "POST" }).then(() => { window.location.href = "/kcsp/login"; })}
             style={topBarBtn}
           >
             Sign out

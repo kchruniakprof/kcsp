@@ -7,6 +7,11 @@ export default defineConfig({
   build: {
     outDir: "../backend/static",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: "assets/[name]-[hash]-v2.js",
+      },
+    },
   },
   test: {
     environment: "jsdom",

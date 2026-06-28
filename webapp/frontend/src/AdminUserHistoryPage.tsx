@@ -15,8 +15,10 @@ interface HistoryItem {
   thread_title: string | null;
 }
 
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, ""); // "/kcsp"
+
 async function api<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await fetch(BASE + path);
   if (res.status === 401) { window.location.href = "/kcsp/login"; throw new Error("401"); }
   if (res.status === 403) { window.location.href = "/kcsp/chat"; throw new Error("403"); }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

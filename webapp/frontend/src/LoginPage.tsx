@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 const ERROR_MESSAGES: Record<string, string> = {
   oauth_failed: "Google sign-in failed. Please try again.",
   no_email: "Your Google account did not share an email address.",
@@ -12,6 +14,7 @@ function errorMessage(): string | null {
 
 export default function LoginPage() {
   const error = errorMessage();
+  const [loading, setLoading] = useState(false);
 
   return (
     <div
@@ -66,26 +69,32 @@ export default function LoginPage() {
 
         <button
           type="button"
+          disabled={loading}
           onClick={() => {
-            window.location.href = "/auth/google/login";
+            setLoading(true);
+            window.location.href = "/kcsp/auth/google/login";
           }}
           style={{
             width: "100%",
             padding: "0.7rem 1rem",
-            background: "var(--ergo-primary)",
+            background: loading ? "#999" : "var(--ergo-primary)",
             color: "#fff",
             border: "none",
             borderRadius: "4px",
             fontWeight: 700,
             fontSize: "0.95rem",
-            cursor: "pointer",
+            cursor: loading ? "not-allowed" : "pointer",
             transition: "background 0.15s ease",
             fontFamily: "inherit",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ergo-primary-dark)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--ergo-primary)")}
+          onMouseEnter={(e) => {
+            if (!loading) e.currentTarget.style.background = "var(--ergo-primary-dark)";
+          }}
+          onMouseLeave={(e) => {
+            if (!loading) e.currentTarget.style.background = "var(--ergo-primary)";
+          }}
         >
-          Sign in with Google
+          {loading ? "Redirecting to Google…" : "Sign in with Google"}
         </button>
       </div>
     </div>

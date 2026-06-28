@@ -20,13 +20,19 @@ interface QueryExpansionDetail {
   section_types: string[];
   confidence: number | null;
   chain_of_thought: string[];
+  model?: string | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  duration_ms?: number | null;
+  cost_eur?: number | null;
 }
 
 interface GeneratorDetail {
-  model: string;
-  tokens_prompt: number;
-  tokens_completion: number;
-  duration_ms: number;
+  model?: string | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  duration_ms?: number | null;
+  cost_eur?: number | null;
   confidence: number | null;
   chain_of_thought: string[];
 }
@@ -38,17 +44,24 @@ interface CriticDetail {
   chain_of_thought: string[];
   retried: boolean | null;
   used_ensemble: boolean | null;
+  model?: string | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  duration_ms?: number | null;
+  cost_eur?: number | null;
 }
 
 interface RetrievalDetail {
   detected_tarif: string | null;
   chunks: SourceChunk[];
+  cited_sources?: string[];
 }
 
 interface TraceData {
   total_cost_eur: number | null;
   total_duration_ms: number | null;
   abstained: boolean;
+  cited_sources: string[];
   query_expansion: QueryExpansionDetail | null;
   retrieval: RetrievalDetail | null;
   generator: GeneratorDetail | null;
@@ -146,7 +159,7 @@ export default function TraceDrawer({ messageId, onClose, basePath = "" }: Props
 
             {/* Stage 2: Retrieval */}
             {data.retrieval && (
-              <RetrievalBlock detail={data.retrieval} />
+              <RetrievalBlock detail={data.retrieval} citedSources={data.cited_sources ?? []} />
             )}
 
             {/* Stage 3: Generator */}
@@ -213,6 +226,17 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
         meta={detail.confidence != null ? `${(detail.confidence * 100).toFixed(0)}% confidence` : undefined}
       />
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
+        {/* Model / token info */}
+        {detail.model && (
+          <div style={{ padding: "0.3rem 0.6rem", background: "#f5f5f5", borderBottom: "1px solid #e8e8e8" }}>
+            <span style={{ color: "#888", fontSize: "0.72rem" }}>
+              {detail.model}
+              {detail.tokens_prompt != null && ` · ${detail.tokens_prompt}+${detail.tokens_completion} tok`}
+              {detail.duration_ms != null && ` · ${detail.duration_ms} ms`}
+              {detail.cost_eur != null && ` · ${fmtEur(detail.cost_eur)}`}
+            </span>
+          </div>
+        )}
         {/* Intent + section types */}
         <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", display: "flex", flexWrap: "wrap", gap: "0.3rem", alignItems: "center" }}>
           <span style={{
@@ -302,13 +326,17 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
 }
 
 // Stage 2: Retrieval
-function RetrievalBlock({ detail }: { detail: RetrievalDetail }) {
+function RetrievalBlock({ detail, citedSources }: { detail: RetrievalDetail; citedSources: string[] }) {
   const chunks = detail.chunks ?? [];
+  const citedSet = new Set(citedSources.map(String));
+  const isCited = (c: SourceChunk) =>
+    citedSet.has(String(c.section_id)) || citedSet.has(c.chunk_id);
+
   return (
     <div style={{ marginBottom: "1rem" }}>
       <StageHeader
         label="Retrieval"
-        meta={`${chunks.length} chunk${chunks.length !== 1 ? "s" : ""}`}
+        meta={`${chunks.length} chunk${chunks.length !== 1 ? "s" : ""} · ${citedSources.length} cited`}
       />
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
         {/* Detected tarif */}
@@ -329,17 +357,54 @@ function RetrievalBlock({ detail }: { detail: RetrievalDetail }) {
         {chunks.length === 0 ? (
           <div style={{ padding: "0.5rem 0.6rem", fontSize: "0.8rem", color: "#888" }}>No chunks retrieved.</div>
         ) : (
-          chunks.map((c, i) => (
-            <div key={i} style={{
-              padding: "0.35rem 0.6rem",
-              borderTop: i > 0 ? "1px solid #e8e8e8" : "none",
-              background: i % 2 === 0 ? "#fafafa" : "#fff",
-            }}>
-              <div style={{ fontWeight: 700, fontSize: "0.76rem", color: "var(--ergo-primary)" }}>{c.heading}</div>
-              <div style={{ color: "#666", fontSize: "0.72rem" }}>{c.breadcrumb}</div>
-              <div style={{ color: "#888", fontSize: "0.72rem" }}>score: {c.score?.toFixed(3)}</div>
-            </div>
-          ))
+          chunks.map((c, i) => {
+            const cited = isCited(c);
+            return (
+              <div key={i} style={{
+                borderTop: i > 0 ? "1px solid #e8e8e8" : "none",
+                background: cited ? "#f0faf4" : (i % 2 === 0 ? "#fafafa" : "#fff"),
+                borderLeft: cited ? "3px solid #27ae60" : "3px solid transparent",
+              }}>
+                {/* Header row */}
+                <div style={{ padding: "0.35rem 0.6rem", display: "flex", alignItems: "flex-start", gap: "0.4rem" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: "0.76rem", color: "var(--ergo-primary)" }}>{c.heading}</div>
+                    <div style={{ color: "#666", fontSize: "0.72rem" }}>{c.breadcrumb}</div>
+                    <div style={{ color: "#888", fontSize: "0.72rem" }}>score: {c.score?.toFixed(3)}</div>
+                  </div>
+                  {cited && (
+                    <span style={{
+                      padding: "0.1rem 0.45rem", borderRadius: 3,
+                      background: "#27ae60", color: "#fff",
+                      fontSize: "0.65rem", fontWeight: 800,
+                      letterSpacing: "0.04em", flexShrink: 0, marginTop: "0.1rem",
+                    }}>
+                      CITED
+                    </span>
+                  )}
+                </div>
+                {/* Chunk content collapsible */}
+                {c.markdown && (
+                  <details style={{ borderTop: "1px solid #e8e8e8" }}>
+                    <summary style={{
+                      fontSize: "0.7rem", cursor: "pointer", color: "#999",
+                      padding: "0.2rem 0.6rem", background: "#f5f5f5", listStyle: "none",
+                    }}>
+                      Content
+                    </summary>
+                    <div style={{
+                      padding: "0.4rem 0.6rem", background: "#fafafa",
+                      fontSize: "0.72rem", color: "#333",
+                      whiteSpace: "pre-wrap", fontFamily: "monospace",
+                      maxHeight: 240, overflowY: "auto",
+                    }}>
+                      {c.markdown}
+                    </div>
+                  </details>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
     </div>
@@ -361,6 +426,7 @@ function GeneratorBlock({ detail }: { detail: GeneratorDetail }) {
             {detail.model}
             {detail.tokens_prompt != null && ` · ${detail.tokens_prompt}+${detail.tokens_completion} tok`}
             {detail.duration_ms != null && ` · ${detail.duration_ms} ms`}
+            {detail.cost_eur != null && ` · ${fmtEur(detail.cost_eur)}`}
             {detail.confidence != null && ` · ${(detail.confidence * 100).toFixed(0)}% confidence`}
           </div>
         </div>
@@ -418,8 +484,8 @@ function CriticBlock({ detail }: { detail: CriticDetail }) {
       </div>
 
       <div style={{ border: "1px solid #e8e8e8", borderTop: "none", borderRadius: "0 0 4px 4px", overflow: "hidden" }}>
-        {/* Verdict badge */}
-        <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        {/* Verdict badge + model info */}
+        <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
           <span style={{
             padding: "0.2rem 0.6rem", borderRadius: 3,
             background: accentColor, color: "#fff",
@@ -436,6 +502,14 @@ function CriticBlock({ detail }: { detail: CriticDetail }) {
               {f}
             </span>
           ))}
+          {detail.model && (
+            <span style={{ color: "#888", fontSize: "0.72rem", marginLeft: "auto" }}>
+              {detail.model}
+              {detail.tokens_prompt != null && ` · ${detail.tokens_prompt}+${detail.tokens_completion} tok`}
+              {detail.duration_ms != null && ` · ${detail.duration_ms} ms`}
+              {detail.cost_eur != null && ` · ${fmtEur(detail.cost_eur)}`}
+            </span>
+          )}
         </div>
 
         {/* Reasoning bullets */}

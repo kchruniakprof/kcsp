@@ -28,7 +28,7 @@ export default function PendingPage() {
         <button
           type="button"
           onClick={async () => {
-            await fetch("/auth/logout", { method: "POST" });
+            await fetch("/kcsp/auth/logout", { method: "POST" });
             window.location.href = "/kcsp/login";
           }}
           style={{
