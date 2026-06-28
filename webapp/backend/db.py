@@ -92,6 +92,14 @@ class AnswerCache(SQLModel, table=True):
     hit_count: int = Field(default=0)
 
 
+class OAuthState(SQLModel, table=True):
+    __tablename__ = "oauth_states"
+
+    state: str = Field(primary_key=True)
+    nonce: Optional[str] = None
+    created_at: str = Field(default="")
+
+
 class Settings(SQLModel, table=True):
     __tablename__ = "settings"
 
@@ -120,6 +128,10 @@ def run_migrations(engine) -> None:
         "ALTER TABLE traces ADD COLUMN pruning_detail_json TEXT",
         "ALTER TABLE traces ADD COLUMN generator_detail_json TEXT",
         "ALTER TABLE messages ADD COLUMN cached INTEGER DEFAULT 0",
+        (
+            "CREATE TABLE IF NOT EXISTS oauth_states ("
+            "state TEXT PRIMARY KEY, nonce TEXT, created_at TEXT)"
+        ),
         (
             "CREATE TABLE IF NOT EXISTS answer_cache ("
             "query_hash TEXT PRIMARY KEY, normalized_query TEXT, version_tag TEXT, "
