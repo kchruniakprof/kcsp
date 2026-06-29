@@ -14,6 +14,8 @@ interface SourceChunk {
 
 interface QueryExpansionDetail {
   intent: string;
+  sparte_hints?: string[];
+  detected_tarif?: string | null;
   paraphrases: string[];
   domain_terms: string[];
   sparse_hints?: string[];
@@ -215,13 +217,20 @@ function StageHeader({ label, meta }: { label: string; meta?: string }) {
 
 // Stage 1: Query Expansion
 function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
+  const detected_tarif = detail.detected_tarif ?? null;
   const intentColors: Record<string, string> = {
-    FACTUAL: "#2980b9",
-    COMPARATIVE: "#8e44ad",
-    OPERATIONAL: "#16a085",
-    OUT_OF_SCOPE: "#c0392b",
+    COVERAGE_QUERY:   "#2980b9",
+    EXCLUSION_QUERY:  "#e67e22",
+    CLAIMS_PROCEDURE: "#16a085",
+    PRICE_QUOTE:      "#8e44ad",
+    COMPARISON:       "#2471a3",
+    COMPLAINT:        "#c0392b",
+    GENERAL_INFO:     "#555",
+    OUT_OF_SCOPE:     "#c0392b",
   };
   const intentColor = intentColors[detail.intent] ?? "#555";
+
+  const spartes = detail.sparte_hints ?? [];
 
   return (
     <div style={{ marginBottom: "1rem" }}>
@@ -241,8 +250,11 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
             </span>
           </div>
         )}
-        {/* Intent + section types */}
-        <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", display: "flex", flexWrap: "wrap", gap: "0.3rem", alignItems: "center" }}>
+
+        {/* Summary row: intent | product(s) | tariff(s) */}
+        <div style={{ padding: "0.4rem 0.6rem", background: "#fafafa", borderBottom: "1px solid #e8e8e8", display: "flex", flexWrap: "wrap", gap: "0.4rem", alignItems: "center" }}>
+          {/* Intent */}
+          <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#999", textTransform: "uppercase", marginRight: "0.1rem" }}>type:</span>
           <span style={{
             padding: "0.15rem 0.5rem", borderRadius: 3,
             background: intentColor, color: "#fff",
@@ -250,16 +262,53 @@ function QueryExpansionBlock({ detail }: { detail: QueryExpansionDetail }) {
           }}>
             {detail.intent}
           </span>
-          {detail.section_types.map((s, i) => (
-            <span key={i} style={{
-              padding: "0.15rem 0.45rem", borderRadius: 3,
-              background: "#e8f0fe", color: "#1a56db",
-              fontSize: "0.68rem", fontWeight: 600,
-            }}>
-              {s}
-            </span>
-          ))}
+
+          {/* Product (Sparte) */}
+          {spartes.length > 0 && (
+            <>
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#999", textTransform: "uppercase", marginLeft: "0.2rem" }}>product:</span>
+              {spartes.map((s, i) => (
+                <span key={i} style={{
+                  padding: "0.15rem 0.5rem", borderRadius: 3,
+                  background: "#1a7a4a", color: "#fff",
+                  fontSize: "0.72rem", fontWeight: 700,
+                }}>
+                  {s}
+                </span>
+              ))}
+            </>
+          )}
+
+          {/* Tariff */}
+          {detected_tarif && (
+            <>
+              <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#999", textTransform: "uppercase", marginLeft: "0.2rem" }}>tariff:</span>
+              <span style={{
+                padding: "0.15rem 0.5rem", borderRadius: 3,
+                background: "var(--ergo-primary)", color: "#fff",
+                fontSize: "0.72rem", fontWeight: 700,
+              }}>
+                {detected_tarif}
+              </span>
+            </>
+          )}
         </div>
+
+        {/* Section types */}
+        {detail.section_types.length > 0 && (
+          <div style={{ padding: "0.3rem 0.6rem", background: "#fff", borderBottom: "1px solid #e8e8e8", display: "flex", flexWrap: "wrap", gap: "0.25rem", alignItems: "center" }}>
+            <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#999", textTransform: "uppercase", marginRight: "0.1rem" }}>sections:</span>
+            {detail.section_types.map((s, i) => (
+              <span key={i} style={{
+                padding: "0.15rem 0.45rem", borderRadius: 3,
+                background: "#e8f0fe", color: "#1a56db",
+                fontSize: "0.68rem", fontWeight: 600,
+              }}>
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Paraphrases */}
         {detail.paraphrases.length > 0 && (
